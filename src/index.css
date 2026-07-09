@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Oswald", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+
+  --color-field-950: #05170d;
+  --color-field-900: #0a2416;
+  --color-field-800: #0f3620;
+  --color-field-700: #164a2c;
+  --color-field-600: #1e5e38;
+
+  --color-ink-950: #05070c;
+  --color-ink-900: #0b1220;
+  --color-ink-850: #101a2e;
+  --color-ink-800: #16223a;
+  --color-ink-700: #1e2c48;
+  --color-ink-600: #2a3a5c;
+  --color-ink-500: #3c4e78;
+
+  --color-parchment-100: #f6f1e4;
+  --color-parchment-200: #ece3cc;
+
+  --color-gold-400: #e8b84b;
+  --color-gold-500: #d4a02f;
+  --color-gold-600: #b9861f;
+
+  --color-crimson-500: #c23b3b;
+  --color-crimson-600: #a52d2d;
+
+  --color-emerald-glow: #34d399;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-900);
+  color: var(--color-parchment-100);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(212, 160, 47, 0.08), transparent 60%),
+    var(--color-ink-900);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 4px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--color-ink-600);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-gold-500);
+  border: 2px solid var(--color-ink-900);
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 1.6s ease-in-out infinite;
+}
