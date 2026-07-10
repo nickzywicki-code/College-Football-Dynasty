@@ -39,7 +39,7 @@ export function GameScreen() {
 
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
-    const cam: Camera = { y: 40, scale: 8, viewH: 60 };
+    const cam: Camera = { x: 8, y: 40, scale: 10, viewH: 60 };
     let raf = 0;
     let last = performance.now();
 
