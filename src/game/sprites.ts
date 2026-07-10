@@ -5,7 +5,18 @@
 // Legend: . transparent | H helmet | F facemask | S skin | J jersey (primary)
 //         N number patch (secondary) | A sleeve | P pants | K shoe | B ball
 
-export type Pose = 'idle' | 'run0' | 'run1' | 'run2' | 'throw' | 'reach' | 'down';
+export type Pose =
+  | 'idle'
+  | 'run0'
+  | 'run1'
+  | 'run2'
+  | 'throw'
+  | 'release'
+  | 'reach'
+  | 'block'
+  | 'tackle'
+  | 'down'
+  | 'celebrate';
 
 const GRID_W = 12;
 const GRID_H = 16;
@@ -118,6 +129,78 @@ const POSES: Record<Pose, string[]> = {
     '...KK...K...',
     '........KK..',
     '...KK.......',
+  ],
+  release: [
+    '....HHHH....',
+    '...HHHHHH...',
+    '...HHHFFS...',
+    '....SSSS.SS.',
+    '...JJJJJAAS.',
+    '..AJJJJJJ...',
+    '..AJNNNNJ...',
+    '..S.NNNN....',
+    '....JJJJ....',
+    '....PPPP....',
+    '...PP.PP....',
+    '...P...PP...',
+    '..PP....P...',
+    '..K.....KK..',
+    '.KK.......K.',
+    '............',
+  ],
+  block: [
+    '............',
+    '....HHHH....',
+    '...HHHHHH...',
+    '...HHHFFS...',
+    '....SSSS....',
+    '...JJJJJJSS.',
+    '..JJJJJJAAS.',
+    '..JJNNNNAA..',
+    '..S.NNNNA...',
+    '....JJJJ....',
+    '....PPPP....',
+    '...PP..PP...',
+    '..PP....PP..',
+    '..K......K..',
+    '.KK......KK.',
+    '............',
+  ],
+  tackle: [
+    '............',
+    '............',
+    '............',
+    '............',
+    '..........SS',
+    '......HHHHAS',
+    '.....HHHHHH.',
+    '.....HHHFFS.',
+    '..JJJJSSSS..',
+    '.JJJJJJJJ...',
+    '.JNNNNJJAA..',
+    'PPNNNN..SS..',
+    'PPPP........',
+    'KPP.........',
+    'KK..........',
+    '............',
+  ],
+  celebrate: [
+    '..S..BB..S..',
+    '..A..BB..A..',
+    '..A.HHHH.A..',
+    '..AHHHHHHA..',
+    '..AHHHFFSA..',
+    '....SSSS....',
+    '...JJJJJJ...',
+    '...JNNNNJ...',
+    '....NNNN....',
+    '....JJJJ....',
+    '....PPPP....',
+    '...PP..PP...',
+    '...P....P...',
+    '...K....K...',
+    '..KK....KK..',
+    '............',
   ],
   down: [
     '............',

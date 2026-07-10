@@ -5,6 +5,7 @@ import { useLeague, useStore } from '../../store/store';
 import { ArcadeGame, HudState } from '../../game/arcade';
 import { Camera, render, updateCamera } from '../../game/render';
 import { DEF_CALLS, OFFENSIVE_PLAYS } from '../../game/playbook';
+import { PlayArt } from '../PlayArt';
 import { applyGameResult } from '../../engine/sim/seasonSim';
 
 export function GameScreen() {
@@ -180,6 +181,7 @@ export function GameScreen() {
                 <button key={p.id} onClick={() => engine.callPlay(p)}>
                   <div className="pname">{p.name}</div>
                   <div className="pdesc">{p.desc}</div>
+                  <PlayArt play={p} />
                 </button>
               ))}
             </div>
@@ -189,6 +191,7 @@ export function GameScreen() {
                 <button key={p.id} onClick={() => engine.callPlay(p)}>
                   <div className="pname">{p.name}</div>
                   <div className="pdesc">{p.desc}</div>
+                  <PlayArt play={p} />
                 </button>
               ))}
             </div>
