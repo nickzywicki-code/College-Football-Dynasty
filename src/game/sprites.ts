@@ -1,15 +1,18 @@
-// Procedural pixel-art player sprites. Each pose is authored as a 12x16
-// character grid and painted per team-color scheme onto a cached offscreen
-// canvas. All art is original.
+// Procedural pixel-art player sprites — original art, drawn in a chunky
+// big-head cartoon style: oversized helmet, dark outline, two-tone shading.
+// Each pose is authored as a 16x20 character grid, painted per team-color
+// scheme, then auto-outlined and rim-shaded onto a cached offscreen canvas.
 //
-// Legend: . transparent | H helmet | F facemask | S skin | J jersey (primary)
-//         N number patch (secondary) | A sleeve | P pants | K shoe | B ball
+// Legend: . transparent | H helmet | G helmet stripe (secondary)
+//         F facemask | S skin | J jersey (primary) | N number (secondary)
+//         A sleeve | P pants | W sock | K shoe | B ball
 
 export type Pose =
   | 'idle'
   | 'run0'
   | 'run1'
   | 'run2'
+  | 'run3'
   | 'throw'
   | 'release'
   | 'reach'
@@ -18,211 +21,289 @@ export type Pose =
   | 'down'
   | 'celebrate';
 
-const GRID_W = 12;
-const GRID_H = 16;
+const GRID_W = 16;
+const GRID_H = 20;
 
 const POSES: Record<Pose, string[]> = {
   idle: [
-    '....HHHH....',
-    '...HHHHHH...',
-    '...HHHFFS...',
-    '....SSSS....',
-    '...JJJJJJ...',
-    '..AJJJJJJA..',
-    '..AJNNNNJA..',
-    '..S.NNNN.S..',
-    '....JJJJ....',
-    '....PPPP....',
-    '....PPPP....',
-    '....P..P....',
-    '....P..P....',
-    '....K..K....',
-    '....K..K....',
-    '...KK..KK...',
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '......JJJJ......',
+    '....JJJJJJJJ....',
+    '...AJJJJJJJJA...',
+    '...AJJNNNNJJA...',
+    '...SSJNNNNJSS...',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '.....PPPPPP.....',
+    '.....PP..PP.....',
+    '.....PP..PP.....',
+    '.....WW..WW.....',
+    '.....WW..WW.....',
+    '....KKK..KKK....',
   ],
+  // stride A: right leg extended forward, left back, arms pumping
   run0: [
-    '....HHHH....',
-    '...HHHHHH...',
-    '...HHHFFS...',
-    '....SSSS....',
-    '...JJJJJJ..A',
-    '..AJJJJJJAA.',
-    '.AAJNNNNJ...',
-    '.S..NNNN....',
-    '....JJJJ....',
-    '....PPPP....',
-    '...PP..PP...',
-    '..PP....PP..',
-    '..P......PP.',
-    '.KK.......K.',
-    '..........KK',
-    'KK..........',
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '......JJJJ.....A',
+    '....JJJJJJJJ..AA',
+    '..AAJJJJJJJJAA..',
+    '.AAJJJNNNNJJ....',
+    '.SS.JJNNNNJJ....',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '....PPP..PPP....',
+    '...PPP....PPP...',
+    '..PPP......PPP..',
+    '..WW........WW..',
+    '.KKK........WW..',
+    '............KKK.',
   ],
+  // stride B: legs passing under the body
   run1: [
-    '....HHHH....',
-    '...HHHHHH...',
-    '...HHHFFS...',
-    '....SSSS....',
-    '...JJJJJJ...',
-    '..AJJJJJJA..',
-    '..AJNNNNJA..',
-    '..S.NNNN.S..',
-    '....JJJJ....',
-    '....PPPP....',
-    '....PPPP....',
-    '....PP.P....',
-    '....P..PP...',
-    '...KK...K...',
-    '........KK..',
-    '...KK.......',
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '......JJJJ......',
+    '....JJJJJJJJ....',
+    '...AJJJJJJJJA...',
+    '...AJJNNNNJJA...',
+    '...SSJNNNNJSS...',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '.....PPPPP......',
+    '.....PPP.PP.....',
+    '.....PP...PP....',
+    '.....WW...WW....',
+    '....KKK...WW....',
+    '..........KKK...',
   ],
+  // stride C: mirror of A
   run2: [
-    '....HHHH....',
-    '...HHHHHH...',
-    '...HHHFFS...',
-    '....SSSS....',
-    'A..JJJJJJ...',
-    '.AAJJJJJJA..',
-    '...JNNNNJAA.',
-    '....NNNN..S.',
-    '....JJJJ....',
-    '....PPPP....',
-    '...PP..PP...',
-    '..PP....PP..',
-    '.PP......P..',
-    '.K.......KK.',
-    'KK..........',
-    '..........KK',
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    'A.....JJJJ......',
+    'AA..JJJJJJJJ....',
+    '..AAJJJJJJJJAA..',
+    '....JJNNNNJJAA..',
+    '....JJNNNNJJ.SS.',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '....PPP..PPP....',
+    '...PPP....PPP...',
+    '..PPP......PPP..',
+    '..WW........WW..',
+    '..WW........KKK.',
+    '.KKK............',
   ],
+  // stride D: legs passing (other arm forward)
+  run3: [
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '......JJJJ......',
+    '....JJJJJJJJ....',
+    '...AJJJJJJJJA...',
+    '...AJJNNNNJJA...',
+    '...SSJNNNNJSS...',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '......PPPPP.....',
+    '.....PP.PPP.....',
+    '....PP...PP.....',
+    '....WW...WW.....',
+    '....WW...KKK....',
+    '...KKK..........',
+  ],
+  // QB windup: ball cocked high behind the helmet
   throw: [
-    '.........BB.',
-    '....HHHH.SB.',
-    '...HHHHHHSA.',
-    '...HHHFFSA..',
-    '....SSSSA...',
-    '...JJJJJJ...',
-    '..AJJJJJJ...',
-    '..AJNNNNJ...',
-    '..S.NNNN....',
-    '....JJJJ....',
-    '....PPPP....',
-    '...PP.PP....',
-    '...P...PP...',
-    '..PP....P...',
-    '..K.....KK..',
-    '.KK.......K.',
+    '............SBB.',
+    '.....HGGHHH.SBB.',
+    '....HHGGHHHHAA..',
+    '...HHHGGHHHHA...',
+    '...HHHHHHHHA....',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '......JJJJ......',
+    '....JJJJJJJJ....',
+    '...AJJJJJJJJ....',
+    '...AJJNNNNJJ....',
+    '...SSJNNNNJJ....',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '....PPP.PPP.....',
+    '....PP...PPP....',
+    '....WW....WW....',
+    '...KKK....WW....',
+    '..........KKK...',
   ],
-  reach: [
-    '..S......S..',
-    '..A.HHHH.A..',
-    '..AHHHHHHA..',
-    '..AHHHFFSA..',
-    '..A.SSSS.A..',
-    '...JJJJJJ...',
-    '...JJJJJJ...',
-    '...JNNNNJ...',
-    '....NNNN....',
-    '....JJJJ....',
-    '....PPPP....',
-    '....PP.P....',
-    '....P..PP...',
-    '...KK...K...',
-    '........KK..',
-    '...KK.......',
-  ],
+  // follow-through: arm extended toward the target
   release: [
-    '....HHHH....',
-    '...HHHHHH...',
-    '...HHHFFS...',
-    '....SSSS.SS.',
-    '...JJJJJAAS.',
-    '..AJJJJJJ...',
-    '..AJNNNNJ...',
-    '..S.NNNN....',
-    '....JJJJ....',
-    '....PPPP....',
-    '...PP.PP....',
-    '...P...PP...',
-    '..PP....P...',
-    '..K.....KK..',
-    '.KK.......K.',
-    '............',
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFSSS..',
+    '....HHHSSSSAASS.',
+    '......JJJJAA....',
+    '....JJJJJJJJ....',
+    '...AJJJJJJJJ....',
+    '...AJJNNNNJJ....',
+    '...SSJNNNNJJ....',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '....PPP.PPP.....',
+    '...PPP...PPP....',
+    '...WW.....WW....',
+    '...WW.....WW....',
+    '..KKK.....KKK...',
+    '................',
   ],
+  // both arms straight up for the catch
+  reach: [
+    '...SS......SS...',
+    '...AA......AA...',
+    '...AAHGGHH.AA...',
+    '...AHHGGHHHA....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '.....JJJJJJ.....',
+    '....JJJJJJJJ....',
+    '....JJNNNNJJ....',
+    '....JJNNNNJJ....',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '.....PPPPP......',
+    '.....PP.PPP.....',
+    '.....WW..WW.....',
+    '.....WW..WW.....',
+    '....KKK..KKK....',
+    '................',
+  ],
+  // crouched pass-pro stance, arms punched forward
   block: [
-    '............',
-    '....HHHH....',
-    '...HHHHHH...',
-    '...HHHFFS...',
-    '....SSSS....',
-    '...JJJJJJSS.',
-    '..JJJJJJAAS.',
-    '..JJNNNNAA..',
-    '..S.NNNNA...',
-    '....JJJJ....',
-    '....PPPP....',
-    '...PP..PP...',
-    '..PP....PP..',
-    '..K......K..',
-    '.KK......KK.',
-    '............',
+    '................',
+    '.....HGGHHH.....',
+    '....HHGGHHHH....',
+    '...HHHGGHHHHH...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSSSS..',
+    '.....JJJJJAASS..',
+    '....JJJJJJAASS..',
+    '....JJNNNNJJ....',
+    '....JJNNNNJJ....',
+    '.....JJJJJJ.....',
+    '....PPPPPPPP....',
+    '...PPP....PPP...',
+    '..PPP......PPP..',
+    '..WW........WW..',
+    '..WW........WW..',
+    '.KKK........KKK.',
+    '................',
   ],
+  // horizontal diving tackle
   tackle: [
-    '............',
-    '............',
-    '............',
-    '............',
-    '..........SS',
-    '......HHHHAS',
-    '.....HHHHHH.',
-    '.....HHHFFS.',
-    '..JJJJSSSS..',
-    '.JJJJJJJJ...',
-    '.JNNNNJJAA..',
-    'PPNNNN..SS..',
-    'PPPP........',
-    'KPP.........',
-    'KK..........',
-    '............',
+    '................',
+    '................',
+    '................',
+    '............SSS.',
+    '.......HGGHHASS.',
+    '......HHGGHHHH..',
+    '.....HHHGGHHHHH.',
+    '.....HHHHFFFFS..',
+    '...JJHHHSSSSS...',
+    '..JJJJJJJJ......',
+    '.JJJJJJJJJJAA...',
+    '.JJNNNNJJ..SS...',
+    'PPJNNNNJ........',
+    'PPPPPP..........',
+    'PPPP............',
+    'WWW.............',
+    'KKK.............',
+    '................',
+    '................',
+    '................',
   ],
-  celebrate: [
-    '..S..BB..S..',
-    '..A..BB..A..',
-    '..A.HHHH.A..',
-    '..AHHHHHHA..',
-    '..AHHHFFSA..',
-    '....SSSS....',
-    '...JJJJJJ...',
-    '...JNNNNJ...',
-    '....NNNN....',
-    '....JJJJ....',
-    '....PPPP....',
-    '...PP..PP...',
-    '...P....P...',
-    '...K....K...',
-    '..KK....KK..',
-    '............',
-  ],
+  // flat on the turf
   down: [
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '..........SS',
-    '.KK.PPP.JJSS',
-    'KK.PPPPJJJJH',
-    '...PP.JJNNHH',
-    '......JJJJHH',
-    '............',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '............SS..',
+    '..KK.WW.PPJJSS..',
+    '.KKKWWPPPJJJJHH.',
+    '....PPPJJJJHHHH.',
+    '...PPJJNNNJHGGH.',
+    '......JJJJJHHHH.',
+    '................',
+    '................',
+  ],
+  // ball raised on one arm, hop
+  celebrate: [
+    '..SS...BBB..SS..',
+    '..AA..BBBBB.AA..',
+    '..AA...BBB..AA..',
+    '..AAHGGHHHH.AA..',
+    '...HHHGGHHHHA...',
+    '...HHHHHHHHHH...',
+    '...HHHHFFFFS....',
+    '...HHHHFFFFS....',
+    '....HHHSSSSS....',
+    '.....JJJJJJ.....',
+    '....JJJJJJJJ....',
+    '....JJNNNNJJ....',
+    '....JJNNNNJJ....',
+    '.....JJJJJJ.....',
+    '.....PPPPPP.....',
+    '....PPP..PPP....',
+    '....PP....PP....',
+    '....WW....WW....',
+    '...KKK....KKK...',
+    '................',
   ],
 };
 
 const SKIN_TONES = ['#f3c39a', '#d9a066', '#a5673f', '#6b4226'];
+const OUTLINE = '#10121f';
 
 export interface SpriteScheme {
   primary: string;
@@ -242,41 +323,76 @@ function shade(hex: string, amt: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
+function shadeRgb(rgb: string, amt: number): string {
+  const m = rgb.match(/rgb\((\d+),(\d+),(\d+)\)/);
+  if (!m) return shade(rgb, amt);
+  const c = (v: string) => Math.min(255, Math.max(0, parseInt(v, 10) + amt));
+  return `rgb(${c(m[1])},${c(m[2])},${c(m[3])})`;
+}
+
 const cache = new Map<string, HTMLCanvasElement>();
 
-/** Paint (and cache) one pose at a given integer pixel size. */
+/**
+ * Paint (and cache) one pose at a given integer pixel size, adding a 1px
+ * cartoon outline around the silhouette and rim shading on the light/dark
+ * edges so the characters read with depth instead of flat blobs.
+ */
 export function getSprite(scheme: SpriteScheme, pose: Pose, px: number): HTMLCanvasElement {
   const key = `${scheme.primary}|${scheme.secondary}|${scheme.skin}|${pose}|${px}`;
   const hit = cache.get(key);
   if (hit) return hit;
 
   const canvas = document.createElement('canvas');
-  canvas.width = GRID_W * px;
-  canvas.height = GRID_H * px;
+  canvas.width = (GRID_W + 2) * px; // +1px border each side for the outline
+  canvas.height = (GRID_H + 2) * px;
   const ctx = canvas.getContext('2d')!;
   const colors: Record<string, string> = {
     H: scheme.primary,
-    F: '#e8e8e8',
+    G: scheme.secondary,
+    F: '#dfe3ea',
     S: scheme.skin,
     J: scheme.primary,
-    A: shade(scheme.primary, -28),
+    A: shade(scheme.primary, -34),
     N: scheme.secondary,
-    P: '#e6e6ee',
-    K: '#15151d',
+    P: '#e8e8f0',
+    W: '#f4f4f8',
+    K: '#191a24',
     B: '#8a5220',
   };
+
   const rows = POSES[pose];
-  for (let y = 0; y < GRID_H; y++) {
-    const row = rows[y] ?? '';
-    for (let x = 0; x < GRID_W; x++) {
-      const c = row[x];
-      if (!c || c === '.') continue;
-      ctx.fillStyle = colors[c] ?? '#fff';
-      ctx.fillRect(x * px, y * px, px, px);
-      // helmet shine + jersey shading for a little depth
-      if (c === 'H' && y <= 1) {
-        ctx.fillStyle = 'rgba(255,255,255,0.28)';
-        ctx.fillRect(x * px, y * px, px, Math.max(1, px / 3));
+  const filled = (x: number, y: number): string | null => {
+    if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return null;
+    const c = rows[y]?.[x];
+    return c && c !== '.' ? c : null;
+  };
+
+  for (let y = -1; y <= GRID_H; y++) {
+    for (let x = -1; x <= GRID_W; x++) {
+      const c = filled(x, y);
+      const dx = (x + 1) * px;
+      const dy = (y + 1) * px;
+      if (!c) {
+        // outline: empty cell touching a filled cell
+        if (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1)) {
+          ctx.fillStyle = OUTLINE;
+          ctx.fillRect(dx, dy, px, px);
+        }
+        continue;
+      }
+      let color = colors[c] ?? '#fff';
+      // rim shading: light from top-left — darken bottom/right silhouette
+      // edges, brighten the top edge of each region
+      const lit = !filled(x, y - 1);
+      const shadowed = !filled(x + 1, y) || !filled(x, y + 1);
+      if (lit && c !== 'F') color = color.startsWith('rgb(') ? shadeRgb(color, 30) : shade(color, 30);
+      else if (shadowed && c !== 'F') color = color.startsWith('rgb(') ? shadeRgb(color, -26) : shade(color, -26);
+      ctx.fillStyle = color;
+      ctx.fillRect(dx, dy, px, px);
+      // glossy helmet dome highlight
+      if (c === 'H' && y <= 2) {
+        ctx.fillStyle = 'rgba(255,255,255,0.30)';
+        ctx.fillRect(dx, dy, px, Math.max(1, px / 3));
       }
     }
   }
@@ -284,10 +400,15 @@ export function getSprite(scheme: SpriteScheme, pose: Pose, px: number): HTMLCan
   return canvas;
 }
 
-/** Pick the run-cycle pose for an entity given elapsed time. */
-export function runPose(timeSec: number): Pose {
-  const seq: Pose[] = ['run0', 'run1', 'run2', 'run1'];
-  return seq[Math.floor(timeSec * 9) % 4];
+/** Pick the run-cycle pose from a speed-accumulated phase. */
+export function runPose(phase: number): Pose {
+  const seq: Pose[] = ['run0', 'run1', 'run2', 'run3'];
+  return seq[Math.floor(phase) % 4];
 }
 
-export const SPRITE_GRID = { w: GRID_W, h: GRID_H };
+/** Vertical bob (in grid pixels) for a given run phase — adds bounce. */
+export function runBob(phase: number): number {
+  return Math.abs(Math.sin(phase * Math.PI)) * 1.2;
+}
+
+export const SPRITE_GRID = { w: GRID_W + 2, h: GRID_H + 2 };

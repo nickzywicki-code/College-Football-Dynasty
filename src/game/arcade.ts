@@ -61,6 +61,7 @@ export interface Ent {
   body: Matter.Body | null; // physics body during live plays
   lungeT: number; // tackle-lunge pose timer
   celebT: number; // celebration pose timer
+  animPhase: number; // run-cycle phase, advanced by actual speed
 }
 
 export interface Particle {
@@ -140,7 +141,7 @@ function newSideStats(): SideStats {
 }
 
 function speedOf(p: Player): number {
-  return 4.3 + (p.attrs.spd / 99) * 4.9; // yds/sec
+  return 5.6 + (p.attrs.spd / 99) * 5.2; // yds/sec (elite ~10.8)
 }
 
 export class ArcadeGame {
@@ -552,7 +553,7 @@ export class ArcadeGame {
         x: midX + rel.x, y: this.losY + rel.y,
         vx: 0, vy: 0, targetX: midX + rel.x, targetY: this.losY + rel.y,
         route: [], routeIdx: 0, engagedWith: null, engageTimer: 0, stunTimer: 0, isBlocking: false,
-        body: null, lungeT: 0, celebT: 0,
+        body: null, lungeT: 0, celebT: 0, animPhase: 0,
       });
     };
     const addOff = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'off', role, rel);
@@ -803,6 +804,7 @@ export class ArcadeGame {
       const v = this.phys.velocityOf(e.body);
       e.vx = v.vx;
       e.vy = v.vy;
+      e.animPhase += Math.hypot(e.vx, e.vy) * dt * 0.55; // stride cadence
     }
   }
 
@@ -823,7 +825,7 @@ export class ArcadeGame {
       this.phys.drive(e.body, 0, 0, 14, dt);
       return;
     }
-    const acc = 6 + (e.player.attrs.acc / 99) * 8;
+    const acc = 13 + (e.player.attrs.acc / 99) * 11;
     this.phys.drive(e.body, (dx / d) * sp, (dy / d) * sp, acc, dt);
   }
 
@@ -835,18 +837,20 @@ export class ArcadeGame {
         // user steers the carrier through physics (momentum + collisions real)
         const mag = Math.hypot(this.stick.x, this.stick.y);
         if (e.body && this.phys) {
-          if (mag > 0.12) {
+          if (mag > 0.08) {
             const sp = speedOf(e.player);
-            const acc = 7 + (e.player.attrs.acc / 99) * 9;
+            const acc = 14 + (e.player.attrs.acc / 99) * 12;
+            // response curve: small drags still move near full speed
+            const throttle = Math.min(1, Math.pow(Math.min(1, mag), 0.5));
             this.phys.drive(
               e.body,
-              (this.stick.x / Math.max(1, mag)) * sp,
-              (this.stick.y / Math.max(1, mag)) * sp,
+              (this.stick.x / mag) * sp * throttle,
+              (this.stick.y / mag) * sp * throttle,
               acc,
               dt,
             );
           } else {
-            this.phys.drive(e.body, 0, 0, 10, dt);
+            this.phys.drive(e.body, 0, 0, 12, dt);
           }
         }
         if (e === this.qbEnt && !this.scrambling && e.y > this.losY) this.scrambling = true;
