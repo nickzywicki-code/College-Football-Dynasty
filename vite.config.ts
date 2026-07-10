@@ -2,7 +2,12 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// On GitHub Pages the app is served from /<repo>/, so assets need that base.
+// Local dev/build stay at root.
+const base = process.env.GITHUB_ACTIONS ? '/College-Football-Dynasty/' : '/';
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
