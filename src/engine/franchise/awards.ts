@@ -12,7 +12,7 @@ function teamWins(league: League, abbr: string): number {
   return league.teams.find((t) => t.abbr === abbr)?.wins ?? 0;
 }
 
-function mvpScore(league: League, p: Player, s: SeasonStats): number {
+function mvpScore(league: League, _p: Player, s: SeasonStats): number {
   return (
     s.passYds * 0.025 +
     s.passTd * 3.2 -

@@ -1,0 +1,697 @@
+:root {
+  --bg: #0a0f0d;
+  --bg2: #111a16;
+  --card: #16221c;
+  --card2: #1d2c24;
+  --line: #26382e;
+  --text: #e8f0ea;
+  --dim: #93a89b;
+  --accent: #35c96f;
+  --accent2: #ffc24b;
+  --danger: #ff6b5e;
+  --blue: #58a6ff;
+  font-size: 16px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.screen {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.screen.no-pad {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.topbar h1 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar .sub {
+  color: var(--dim);
+  font-size: 0.78rem;
+}
+
+.backbtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 4px 8px 4px 0;
+  cursor: pointer;
+}
+
+/* ---------- bottom nav ---------- */
+.bottomnav {
+  display: flex;
+  background: var(--bg2);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.bottomnav button {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 0.68rem;
+  padding: 8px 2px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.bottomnav button .ico {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.bottomnav button.active {
+  color: var(--accent);
+}
+
+/* ---------- cards & lists ---------- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card h2 {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.row .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.list-item:last-child {
+  border-bottom: none;
+}
+
+.list-item .name {
+  font-weight: 600;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-item .meta {
+  color: var(--dim);
+  font-size: 0.76rem;
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: #06130b;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: none;
+  border-radius: 12px;
+  padding: 13px 18px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+}
+
+.btn.secondary {
+  background: var(--card2);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.btn.warn {
+  background: var(--accent2);
+  color: #241a02;
+}
+
+.btn.danger {
+  background: var(--danger);
+  color: #2b0703;
+}
+
+.btn.small {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  width: auto;
+  border-radius: 9px;
+}
+
+.btnrow {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.btnrow .btn {
+  flex: 1;
+}
+
+/* ---------- badges, ratings ---------- */
+.ovr {
+  font-weight: 800;
+  font-size: 1rem;
+  min-width: 34px;
+  text-align: center;
+  border-radius: 8px;
+  padding: 4px 0;
+}
+
+.ovr.elite { background: #1d4ed8; color: #dbeafe; }
+.ovr.great { background: #15803d; color: #dcfce7; }
+.ovr.good { background: #4d7c0f; color: #ecfccb; }
+.ovr.ok { background: #a16207; color: #fef9c3; }
+.ovr.bad { background: #7f1d1d; color: #fee2e2; }
+
+.pos-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--dim);
+  background: var(--card2);
+  border-radius: 6px;
+  padding: 3px 6px;
+  min-width: 30px;
+  text-align: center;
+}
+
+.ratingbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.ratingbar .lbl {
+  width: 88px;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
+.ratingbar .track {
+  flex: 1;
+  height: 8px;
+  background: var(--card2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ratingbar .fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.ratingbar .val {
+  width: 26px;
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* ---------- tables ---------- */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.tbl th {
+  color: var(--dim);
+  font-weight: 600;
+  text-align: right;
+  padding: 6px 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.tbl td {
+  padding: 7px 5px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.tbl th:first-child,
+.tbl td:first-child {
+  text-align: left;
+}
+
+.tbl tr:last-child td {
+  border-bottom: none;
+}
+
+.tbl .me td {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.tblwrap {
+  overflow-x: auto;
+}
+
+/* ---------- segmented control ---------- */
+.seg {
+  display: flex;
+  background: var(--card2);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 12px;
+}
+
+.seg button {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg button.active {
+  background: var(--accent);
+  color: #06130b;
+}
+
+/* ---------- team dot ---------- */
+.teamdot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+/* ---------- score strip ---------- */
+.scorebox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.scorebox .team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.scorebox .pts {
+  font-weight: 800;
+  font-size: 1.1rem;
+  min-width: 34px;
+  text-align: center;
+}
+
+/* ---------- news ---------- */
+.news p {
+  font-size: 0.82rem;
+  color: var(--dim);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.45;
+}
+
+.news p:last-child {
+  border-bottom: none;
+}
+
+/* ---------- title screen ---------- */
+.title-hero {
+  text-align: center;
+  padding: 46px 0 26px;
+}
+
+.title-hero .logo {
+  font-size: 3.2rem;
+}
+
+.title-hero h1 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.title-hero p {
+  color: var(--dim);
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
+.teamgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.teamgrid button {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.66rem;
+  cursor: pointer;
+}
+
+.teamgrid button.selected {
+  border-color: var(--accent);
+  background: var(--card2);
+}
+
+/* ---------- modal ---------- */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--bg2);
+  border-radius: 18px 18px 0 0;
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 560px;
+  max-height: 82vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  font-size: 1rem;
+  margin-bottom: 12px;
+}
+
+/* ---------- forms ---------- */
+.field {
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--dim);
+  margin-bottom: 5px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 1rem;
+}
+
+/* ---------- arcade game overlay UI ---------- */
+.gamewrap {
+  position: relative;
+  height: 100%;
+  background: #07120c;
+  touch-action: none;
+}
+
+.gamewrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hud-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+  background: linear-gradient(rgba(4, 10, 7, 0.92), rgba(4, 10, 7, 0));
+  pointer-events: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+  z-index: 3;
+}
+
+.hud-top .clock {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-top .clock .downdist {
+  font-size: 0.72rem;
+  color: var(--accent2);
+  font-weight: 600;
+}
+
+.playcall {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 10, 7, 0.86);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: calc(52px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+}
+
+.playcall h3 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  margin: 10px 0 8px;
+}
+
+.playgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.playgrid button {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 12px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.playgrid button .pname {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.playgrid button .pdesc {
+  color: var(--dim);
+  font-size: 0.68rem;
+  margin-top: 3px;
+}
+
+.gamebtns {
+  position: absolute;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 4;
+}
+
+.gamebtns .act {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(22, 34, 28, 0.85);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 34%;
+  text-align: center;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.banner .big {
+  font-size: 1.6rem;
+  font-weight: 800;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+
+.banner .small {
+  font-size: 0.9rem;
+  color: var(--accent2);
+  margin-top: 4px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+}
+
+.recv-btns {
+  position: absolute;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 4;
+}
+
+.recv-btns button {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--accent2);
+  background: rgba(34, 28, 8, 0.85);
+  color: var(--accent2);
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.kickmeter {
+  position: absolute;
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  left: 10%;
+  right: 10%;
+  height: 26px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.kickmeter .zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(53, 201, 111, 0.4);
+}
+
+.kickmeter .needle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #fff;
+  border-radius: 2px;
+}
+
+.empty {
+  color: var(--dim);
+  text-align: center;
+  padding: 26px 10px;
+  font-size: 0.85rem;
+}
