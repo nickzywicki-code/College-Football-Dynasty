@@ -8,6 +8,10 @@ import type { Player } from '../engine/types';
 const STEP_MS = 1000 / 60;
 /** matter velocity is distance per 16.67ms step; ours is yards/sec */
 const V = 1 / 60;
+/** low per-step air drag so bodies coast naturally; steering does the stopping */
+const AIR = 0.05;
+/** compensates the drag so driven bodies actually reach their rated speed */
+const DRAG_COMP = 1 / (1 - AIR);
 
 export interface PhysBody {
   body: Matter.Body;
@@ -33,12 +37,12 @@ export class PhysicsWorld {
   }
 
   addPlayer(x: number, y: number, p: Player): Matter.Body {
-    const density = 1 + (p.attrs.str / 99) * 1.3; // heavier = harder to move
-    const body = Matter.Bodies.circle(x, y, 0.46, {
+    const density = 0.9 + (p.attrs.str / 99) * 1.1; // heavier = harder to move
+    const body = Matter.Bodies.circle(x, y, 0.42, {
       density,
-      frictionAir: 0.28, // bodies settle quickly without input
-      friction: 0.05,
-      restitution: 0.05,
+      frictionAir: AIR,
+      friction: 0.02,
+      restitution: 0.08,
     });
     Matter.Composite.add(this.engine.world, body);
     return body;
@@ -50,14 +54,18 @@ export class PhysicsWorld {
 
   /**
    * Steer a body toward a desired velocity (yards/sec). Blends rather than
-   * overwrites so knockback / pushing from collisions persists.
+   * overwrites so knockback / pushing from collisions persists. `accel` is
+   * the blend rate (1/s): higher = snappier direction changes.
    */
-  drive(body: Matter.Body, vx: number, vy: number, accel = 10, dt = 1 / 60): void {
+  drive(body: Matter.Body, vx: number, vy: number, accel = 16, dt = 1 / 60): void {
     const cur = body.velocity;
     const t = Math.min(1, accel * dt);
+    // overdrive slightly so equilibrium against air drag lands on the true speed
+    const tx = vx * V * DRAG_COMP;
+    const ty = vy * V * DRAG_COMP;
     Matter.Body.setVelocity(body, {
-      x: cur.x + (vx * V - cur.x) * t,
-      y: cur.y + (vy * V - cur.y) * t,
+      x: cur.x + (tx - cur.x) * t,
+      y: cur.y + (ty - cur.y) * t,
     });
   }
 

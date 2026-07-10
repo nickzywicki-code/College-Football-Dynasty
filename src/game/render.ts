@@ -6,7 +6,7 @@
 
 import type { ArcadeGame, Ent } from './arcade';
 import { FIELD_LEN, FIELD_W } from './arcade';
-import { getSprite, runPose, skinFor, Pose, SPRITE_GRID } from './sprites';
+import { getSprite, runBob, runPose, skinFor, Pose, SPRITE_GRID } from './sprites';
 
 /** Yards of field width visible vertically (zoom level). */
 const VIEW_W = 34;
@@ -21,9 +21,10 @@ export function updateCamera(cam: Camera, game: ArcadeGame, canvasW: number, can
   cam.scale = canvasH / VIEW_W;
   const viewL = canvasW / cam.scale;
   // ball sits ~38% from the left so the player sees downfield
-  const targetL = Math.max(0, Math.min(FIELD_LEN - viewL, game.ball.y - viewL * 0.38));
+  const lead = game.carrier ? game.carrier.vy * 0.35 : 0;
+  const targetL = Math.max(0, Math.min(FIELD_LEN - viewL, game.ball.y + lead - viewL * 0.38));
   const targetW = Math.max(0, Math.min(FIELD_W - VIEW_W, game.ball.x - VIEW_W / 2));
-  const k = Math.min(1, dt * 5);
+  const k = Math.min(1, dt * 7);
   cam.l += (targetL - cam.l) * k;
   cam.w += (targetW - cam.w) * k;
 }
@@ -127,7 +128,7 @@ export function render(
 
   // players (sorted by screen Y so lower players overlap upper — painter's order)
   if (game.phase === 'presnap' || game.phase === 'live' || game.phase === 'playover') {
-    const px = Math.max(2, Math.round((2.4 * s) / SPRITE_GRID.h));
+    const px = Math.max(2, Math.round((3.0 * s) / SPRITE_GRID.h));
     const ents = [...game.ents].sort((a, b) => a.x - b.x);
     for (const e of ents) {
       drawEnt(ctx, game, cam, e, px);
@@ -203,7 +204,7 @@ function drawEnt(ctx: CanvasRenderingContext2D, game: ArcadeGame, cam: Camera, e
   else if (e === game.qbEnt && game.releaseT > 0) pose = 'release';
   else if (e === game.qbEnt && e === game.carrier && game.play?.type === 'pass' && !game.passThrown && speed < 0.6) pose = 'throw';
   else if (e.engagedWith) pose = 'block';
-  else if (speed > 0.6) pose = runPose(game.playElapsed + e.player.id * 0.13);
+  else if (speed > 0.6) pose = runPose(e.animPhase + e.player.id * 0.29);
   else pose = 'idle';
 
   const sprite = getSprite(scheme, pose, px);
@@ -215,13 +216,21 @@ function drawEnt(ctx: CanvasRenderingContext2D, game: ArcadeGame, cam: Camera, e
   const cy = sy(cam, e.x);
   const w = sprite.width;
   const h = sprite.height;
+  // running bounce: bob the body, keep the shadow planted
+  const speedNow = Math.hypot(e.vx, e.vy);
+  const bob = pose.startsWith('run') ? runBob(e.animPhase + e.player.id * 0.29) * (h / SPRITE_GRID.h) : 0;
   ctx.save();
-  // shadow
+  // shadow squashes slightly as the body rises
+  const squash = 1 - (bob / h) * 2;
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(cx, cy + h * 0.46, w * 0.42, h * 0.09, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, cy + h * 0.46, w * 0.40 * Math.max(0.7, squash), h * 0.08, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.translate(cx, cy);
+  ctx.translate(cx, cy - bob);
+  // subtle forward lean at speed
+  if (speedNow > 4 && pose.startsWith('run')) {
+    ctx.rotate((faceRight ? 1 : -1) * Math.min(0.1, speedNow * 0.011));
+  }
   if (!faceRight) ctx.scale(-1, 1);
   ctx.drawImage(sprite, -w / 2, -h / 2);
   ctx.restore();
