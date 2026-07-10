@@ -48,7 +48,7 @@ export function Hub() {
   return (
     <>
       <TopBar title={teamName(team)} sub={`S${league.season} · ${phaseLabel(league.phase, league.week)}`} />
-      <div className="screen">
+      <div className="screen"><div className="cardgrid">
         <div className="card">
           <div className="row">
             <TeamDot team={team} size={46} />
@@ -132,7 +132,7 @@ export function Hub() {
             <h2>League Week</h2>
             {!weekDone ? (
               <button className="btn warn" onClick={() => simRestOfWeek(false)}>
-                ⏩ Sim {myGame && !myGame.played ? 'Whole Week (incl. my game)' : 'Rest of Week'}
+                ⏩ {myGame && !myGame.played ? 'Sim Full Week' : 'Sim Rest of Week'}
               </button>
             ) : (
               <button className="btn" onClick={advance}>
@@ -232,7 +232,7 @@ export function Hub() {
             <p key={i}>{n}</p>
           ))}
         </div>
-      </div>
+      </div></div>
     </>
   );
 }

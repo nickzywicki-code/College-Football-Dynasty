@@ -39,7 +39,7 @@ export function GameScreen() {
 
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
-    const cam: Camera = { x: 8, y: 40, scale: 10, viewH: 60 };
+    const cam: Camera = { l: 30, w: 10, scale: 10 };
     let raf = 0;
     let last = performance.now();
 
@@ -73,11 +73,13 @@ export function GameScreen() {
     const onMove = (e: TouchEvent | MouseEvent) => {
       if (!touchStart) return;
       const pt = 'touches' in e ? e.touches[0] : e;
-      const dx = (pt.clientX - touchStart.x) / 40;
-      const dy = -(pt.clientY - touchStart.y) / 40; // screen up = downfield
-      const mag = Math.hypot(dx, dy);
+      // landscape mapping: drag right = downfield (+engine.y),
+      // drag down-screen = toward the bottom sideline (+engine.x)
+      const lenDir = (pt.clientX - touchStart.x) / 40;
+      const widDir = (pt.clientY - touchStart.y) / 40;
+      const mag = Math.hypot(lenDir, widDir);
       const capped = Math.min(1, mag);
-      engine.setStick(mag > 0 ? (dx / mag) * capped : 0, mag > 0 ? (dy / mag) * capped : 0);
+      engine.setStick(mag > 0 ? (widDir / mag) * capped : 0, mag > 0 ? (lenDir / mag) * capped : 0);
       if ('touches' in e) e.preventDefault();
     };
     const onEnd = () => {

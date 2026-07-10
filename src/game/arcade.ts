@@ -15,6 +15,7 @@ import {
   resolveSimPlay,
   tackleBreakProbability,
 } from '../engine/sim/playSim';
+import { audio } from './audio';
 import {
   DEFENSE_ALIGNMENT,
   DefCall,
@@ -307,6 +308,7 @@ export class ArcadeGame {
   }
 
   private turnover(kind: string, spotYtgForNewOffense: number): void {
+    audio.play(this.possession === 'user' ? 'turnover' : 'touchdown');
     this.offStats.totals.turnovers++;
     this.log(kind);
     this.possession = this.possession === 'user' ? 'cpu' : 'user';
@@ -315,6 +317,7 @@ export class ArcadeGame {
   }
 
   private touchdownFor(side: 'user' | 'cpu'): void {
+    audio.play(side === 'user' ? 'touchdown' : 'crowd');
     this.score(side, 6);
     this.setBanner('TOUCHDOWN!', side === 'user' ? this.userTeam.abbr : this.cpuTeam.abbr);
     this.pendingPat = side;
@@ -414,6 +417,7 @@ export class ArcadeGame {
     const off = Math.abs(v - (this.meter.zoneLo + this.meter.zoneHi) / 2);
     const kind = this.meter.kind;
     this.meter = null;
+    audio.play('kick');
 
     if (kind === 'xp') {
       const k = this.userP.K;
@@ -440,6 +444,7 @@ export class ArcadeGame {
         this.bump(l, 'fgm');
         l.fgLong = Math.max(l.fgLong ?? 0, dist);
         this.score('user', 3);
+        audio.play('fieldgoal');
         this.log(`${k.lastName} drills the ${dist}-yard field goal!`);
         this.setBanner('FIELD GOAL IS GOOD!', `${dist} yards`);
         this.possession = 'cpu';
@@ -569,6 +574,7 @@ export class ArcadeGame {
 
   snap(): void {
     if (this.phase !== 'presnap') return;
+    audio.play('snap');
     this.phase = 'live';
     this.carrier = this.qbEnt;
     // QB sneak: QB is instantly the runner
@@ -939,6 +945,7 @@ export class ArcadeGame {
     if (this.r.chance(clamp(catchP, 0.1, 0.96))) {
       this.carrier = target;
       target.route = [];
+      audio.play('catch');
       this.setBannerFlash('CATCH!');
     } else {
       this.log(`${qb.lastName}'s pass to ${target.player.lastName} is ${sep < 0.5 ? 'broken up' : 'dropped'}.`);
@@ -994,6 +1001,7 @@ export class ArcadeGame {
           this.turnover('FUMBLE!', 100 - Math.round(clamp(110 - c.y, 1, 99)));
           return;
         }
+        audio.play('tackle');
         this.bump(this.line(this.defStats, e.player), 'tackles');
         if (isSack) {
           this.bump(this.line(this.defStats, e.player), 'sacks');
@@ -1051,6 +1059,7 @@ export class ArcadeGame {
       }
     }
 
+    if (!touchdown) audio.play('whistle');
     const clockStops = touchdown || outOfBounds || (play.type === 'pass' && !this.passThrown && false);
     this.chargeClock(6 + this.playElapsed * 0.4 + (clockStops ? 0 : 26));
 
@@ -1075,6 +1084,7 @@ export class ArcadeGame {
       this.down = 1;
       this.toGo = Math.min(10, this.yardsToGoal);
       this.offStats.totals.firstDowns++;
+      audio.play('firstdown');
     } else if (yards >= this.toGo && !incomplete) {
       // unreachable, kept for clarity
     } else {

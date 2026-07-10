@@ -1,6 +1,8 @@
-// App shell: screen routing + bottom navigation.
+// App shell: landscape layout with side nav rail, rotate prompt, audio boot.
 
+import { useEffect } from 'react';
 import { useStore, Screen } from '../store/store';
+import { audio } from '../game/audio';
 import { Title } from './screens/Title';
 import { Hub } from './screens/Hub';
 import { Roster } from './screens/Roster';
@@ -17,11 +19,11 @@ import { SettingsScreen } from './screens/SettingsScreen';
 import { GameScreen } from './screens/GameScreen';
 
 const TABS: { screen: Screen; label: string; ico: string }[] = [
-  { screen: 'hub', label: 'Home', ico: '🏠' },
-  { screen: 'roster', label: 'Team', ico: '👥' },
-  { screen: 'standings', label: 'League', ico: '🏆' },
-  { screen: 'stats', label: 'Stats', ico: '📊' },
-  { screen: 'settings', label: 'More', ico: '⚙️' },
+  { screen: 'hub', label: 'HOME', ico: '🏠' },
+  { screen: 'roster', label: 'TEAM', ico: '👥' },
+  { screen: 'standings', label: 'LEAGUE', ico: '🏆' },
+  { screen: 'stats', label: 'STATS', ico: '📊' },
+  { screen: 'settings', label: 'MORE', ico: '⚙️' },
 ];
 
 function CurrentScreen({ screen }: { screen: Screen }) {
@@ -63,13 +65,45 @@ export function App() {
   const nav = useStore((s) => s.nav);
   const resetNav = useStore((s) => s.resetNav);
   const current = nav[nav.length - 1];
-  const showNav = league && current.screen !== 'game' && current.screen !== 'title' && current.screen !== 'newLeague';
+  const inGame = current.screen === 'game';
+  const showNav = league && !inGame && current.screen !== 'title' && current.screen !== 'newLeague';
+
+  // boot audio on first user gesture; click blips on every button press
+  useEffect(() => {
+    const boot = () => {
+      audio.ensure();
+      audio.startMusic();
+      window.removeEventListener('pointerdown', boot);
+    };
+    window.addEventListener('pointerdown', boot);
+    const clicker = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.closest('button')) audio.play('click');
+    };
+    document.addEventListener('click', clicker);
+    return () => {
+      window.removeEventListener('pointerdown', boot);
+      document.removeEventListener('click', clicker);
+    };
+  }, []);
+
+  // duck the music while on the game screen
+  useEffect(() => {
+    audio.duckMusic(inGame);
+  }, [inGame]);
 
   return (
     <div className="app">
-      <CurrentScreen screen={current.screen} />
+      <div className="rotate-overlay">
+        <div className="ball">🏈</div>
+        <p>
+          ROTATE YOUR DEVICE
+          <br />
+          GRIDIRON LAND PLAYS IN LANDSCAPE
+        </p>
+      </div>
       {showNav && (
-        <nav className="bottomnav">
+        <nav className="sidenav">
           {TABS.map((t) => (
             <button
               key={t.screen}
@@ -82,6 +116,9 @@ export function App() {
           ))}
         </nav>
       )}
+      <div className="main-col">
+        <CurrentScreen screen={current.screen} />
+      </div>
     </div>
   );
 }
