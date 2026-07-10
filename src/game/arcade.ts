@@ -16,6 +16,8 @@ import {
   tackleBreakProbability,
 } from '../engine/sim/playSim';
 import { audio } from './audio';
+import type Matter from 'matter-js';
+import { PhysicsWorld } from './physics';
 import {
   DEFENSE_ALIGNMENT,
   DefCall,
@@ -56,12 +58,32 @@ export interface Ent {
   engageTimer: number;
   stunTimer: number; // beaten defender / juked
   isBlocking: boolean;
+  body: Matter.Body | null; // physics body during live plays
+  lungeT: number; // tackle-lunge pose timer
+  celebT: number; // celebration pose timer
+}
+
+export interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
 }
 
 export interface BallState {
   x: number;
   y: number;
   inFlight: boolean;
+  /** live fumble rolling on the turf */
+  loose: boolean;
+  looseVx: number;
+  looseVy: number;
+  /** nobody may recover until this expires (scramble drama) */
+  looseLockout: number;
   flightT: number;
   flightDur: number;
   fromX: number;
@@ -149,8 +171,15 @@ export class ArcadeGame {
   play: OffensivePlay | null = null;
   ents: Ent[] = [];
   ball: BallState = {
-    x: 0, y: 0, inFlight: false, flightT: 0, flightDur: 0, fromX: 0, fromY: 0, toX: 0, toY: 0, targetEnt: null,
+    x: 0, y: 0, inFlight: false, loose: false, looseVx: 0, looseVy: 0, looseLockout: 0,
+    flightT: 0, flightDur: 0, fromX: 0, fromY: 0, toX: 0, toY: 0, targetEnt: null,
   };
+  phys: PhysicsWorld | null = null;
+  fx: Particle[] = [];
+  shake = 0;
+  releaseT = 0; // QB throw-release pose timer
+  private postPlayTimer = 0;
+  private afterPlay: (() => void) | null = null;
   carrier: Ent | null = null;
   qbEnt: Ent | null = null;
   passThrown = false;
@@ -513,22 +542,21 @@ export class ArcadeGame {
     this.firstDownY = Math.min(110, this.losY + this.toGo);
     const midX = FIELD_W / 2;
 
-    const addOff = (p: Player, role: string, rel: RoutePoint) => {
+    this.phys = new PhysicsWorld(FIELD_W, FIELD_LEN);
+    this.fx = [];
+    this.shake = 0;
+    this.releaseT = 0;
+    const addEnt = (p: Player, side: 'off' | 'def', role: string, rel: RoutePoint) => {
       this.ents.push({
-        player: p, side: 'off', role,
+        player: p, side, role,
         x: midX + rel.x, y: this.losY + rel.y,
         vx: 0, vy: 0, targetX: midX + rel.x, targetY: this.losY + rel.y,
         route: [], routeIdx: 0, engagedWith: null, engageTimer: 0, stunTimer: 0, isBlocking: false,
+        body: null, lungeT: 0, celebT: 0,
       });
     };
-    const addDef = (p: Player, role: string, rel: RoutePoint) => {
-      this.ents.push({
-        player: p, side: 'def', role,
-        x: midX + rel.x, y: this.losY + rel.y,
-        vx: 0, vy: 0, targetX: midX + rel.x, targetY: this.losY + rel.y,
-        route: [], routeIdx: 0, engagedWith: null, engageTimer: 0, stunTimer: 0, isBlocking: false,
-      });
-    };
+    const addOff = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'off', role, rel);
+    const addDef = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'def', role, rel);
 
     addOff(off.QB, 'QB', OFFENSE_ALIGNMENT.QB);
     addOff(off.RB[0], 'RB', OFFENSE_ALIGNMENT.RB);
@@ -542,10 +570,11 @@ export class ArcadeGame {
     def.CB.forEach((p, i) => addDef(p, `CB${i}`, DEFENSE_ALIGNMENT[`CB${i}`]));
     def.S.forEach((p, i) => addDef(p, `S${i}`, DEFENSE_ALIGNMENT[`S${i}`]));
 
-    // clamp x to field
+    // clamp x to field, then give every player a physics body
     for (const e of this.ents) {
       e.x = clamp(e.x, 1.5, FIELD_W - 1.5);
       e.targetX = e.x;
+      e.body = this.phys.addPlayer(e.x, e.y, e.player);
     }
 
     // routes (absolute coords)
@@ -563,6 +592,7 @@ export class ArcadeGame {
     this.ball.x = qb.x;
     this.ball.y = qb.y;
     this.ball.inFlight = false;
+    this.ball.loose = false;
     this.ball.targetEnt = null;
     this.carrier = null;
     this.passThrown = false;
@@ -608,6 +638,7 @@ export class ArcadeGame {
     this.ball.toY = toY;
     this.ball.targetEnt = target;
     this.passThrown = true;
+    this.releaseT = 0.35;
     const air = toY - this.losY;
     this.passDepthAtThrow = air < 9 ? 'short' : air < 19 ? 'medium' : 'deep';
     this.carrier = null;
@@ -629,9 +660,65 @@ export class ArcadeGame {
         nearest = e;
       }
     }
+    // sideways burst perpendicular to current motion
+    if (c.body && this.phys) {
+      const dir = Math.sign(this.stick.x || (this.r.chance(0.5) ? 1 : -1));
+      this.phys.impulse(c.body, dir * 6.5, 0);
+    }
     if (nearest && this.r.chance(clamp(0.45 + (c.player.attrs.agi - nearest.player.attrs.tkl) * 0.008, 0.15, 0.85))) {
       nearest.stunTimer = 0.8;
+      nearest.lungeT = 0.4; // whiffed dive
+      this.spawnDust(nearest.x, nearest.y, 5);
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // effects
+  // ---------------------------------------------------------------------
+  spawnDust(x: number, y: number, n = 8): void {
+    for (let i = 0; i < n; i++) {
+      const a = this.r.range(0, Math.PI * 2);
+      const sp = this.r.range(1, 4.5);
+      this.fx.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: this.r.range(0.25, 0.55), maxLife: 0.55,
+        color: this.r.chance(0.5) ? '#c9b78a' : '#e8dfc2', size: this.r.range(0.14, 0.3),
+      });
+    }
+  }
+
+  spawnConfetti(x: number, y: number): void {
+    const colors = [this.userTeam.colors[0], this.userTeam.colors[1], '#ffcf40', '#ffffff'];
+    for (let i = 0; i < 36; i++) {
+      const a = this.r.range(-Math.PI, 0);
+      const sp = this.r.range(4, 12);
+      this.fx.push({
+        x: x + this.r.range(-2, 2), y,
+        vx: Math.cos(a) * sp * 0.4, vy: Math.sin(a) * sp * 0.3,
+        life: this.r.range(0.8, 1.6), maxLife: 1.6,
+        color: colors[i % colors.length], size: this.r.range(0.18, 0.34),
+      });
+    }
+  }
+
+  private updateFx(dt: number): void {
+    for (const f of this.fx) {
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.vx *= 0.92;
+      f.vy *= 0.92;
+      f.life -= dt;
+    }
+    this.fx = this.fx.filter((f) => f.life > 0);
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 2.2);
+  }
+
+  /** Freeze the action briefly (hit-stop / celebration), then resolve. */
+  private freezeThen(duration: number, fn: () => void): void {
+    this.phase = 'playover';
+    this.postPlayTimer = duration;
+    this.afterPlay = fn;
+    this.pushHud();
   }
 
   // ---------------------------------------------------------------------
@@ -665,10 +752,26 @@ export class ArcadeGame {
       }
       return;
     }
+    // post-play hit-stop / celebration: physics keeps settling, then resolve
+    if (this.phase === 'playover') {
+      this.stepPhysics(dt);
+      this.updateFx(dt);
+      this.updatePoseTimers(dt);
+      this.updateBall(dt);
+      this.postPlayTimer -= dt;
+      if (this.postPlayTimer <= 0 && this.afterPlay) {
+        const fn = this.afterPlay;
+        this.afterPlay = null;
+        fn();
+      }
+      this.pushHud();
+      return;
+    }
     if (this.phase !== 'live') return;
 
     this.playElapsed += dt;
     if (this.jukeCooldown > 0) this.jukeCooldown -= dt;
+    if (this.releaseT > 0) this.releaseT -= dt;
 
     // handoff
     if (this.handoffTimer > 0) {
@@ -681,28 +784,47 @@ export class ArcadeGame {
 
     this.updateOffense(dt);
     this.updateDefense(dt);
+    this.stepPhysics(dt);
+    this.updateFx(dt);
+    this.updatePoseTimers(dt);
     this.updateBall(dt);
     this.checkOutcomes();
     this.pushHud();
   }
 
+  /** Advance matter-js and copy body state back onto entities. */
+  private stepPhysics(dt: number): void {
+    if (!this.phys) return;
+    this.phys.step(dt);
+    for (const e of this.ents) {
+      if (!e.body) continue;
+      e.x = e.body.position.x;
+      e.y = e.body.position.y;
+      const v = this.phys.velocityOf(e.body);
+      e.vx = v.vx;
+      e.vy = v.vy;
+    }
+  }
+
+  private updatePoseTimers(dt: number): void {
+    for (const e of this.ents) {
+      if (e.lungeT > 0) e.lungeT -= dt;
+      if (e.celebT > 0) e.celebT -= dt;
+    }
+  }
+
   private moveToward(e: Ent, tx: number, ty: number, dt: number, speedMult = 1): void {
+    if (!e.body || !this.phys) return;
     const sp = speedOf(e.player) * speedMult;
     const dx = tx - e.x;
     const dy = ty - e.y;
     const d = Math.hypot(dx, dy);
-    if (d < 0.05) {
-      e.vx = 0;
-      e.vy = 0;
+    if (d < 0.1) {
+      this.phys.drive(e.body, 0, 0, 14, dt);
       return;
     }
-    const nx = dx / d;
-    const ny = dy / d;
-    e.vx = nx * sp;
-    e.vy = ny * sp;
-    e.x += e.vx * dt;
-    e.y += e.vy * dt;
-    e.x = clamp(e.x, 0.3, FIELD_W - 0.3);
+    const acc = 6 + (e.player.attrs.acc / 99) * 8;
+    this.phys.drive(e.body, (dx / d) * sp, (dy / d) * sp, acc, dt);
   }
 
   private updateOffense(dt: number): void {
@@ -710,17 +832,22 @@ export class ArcadeGame {
     for (const e of this.ents) {
       if (e.side !== 'off') continue;
       if (e === this.carrier) {
-        // user controls carrier via stick
+        // user steers the carrier through physics (momentum + collisions real)
         const mag = Math.hypot(this.stick.x, this.stick.y);
-        if (mag > 0.12) {
-          const sp = speedOf(e.player);
-          e.vx = (this.stick.x / Math.max(1, mag)) * sp;
-          e.vy = (this.stick.y / Math.max(1, mag)) * sp;
-          e.x = clamp(e.x + e.vx * dt, 0.3, FIELD_W - 0.3);
-          e.y += e.vy * dt;
-        } else {
-          e.vx = 0;
-          e.vy = 0;
+        if (e.body && this.phys) {
+          if (mag > 0.12) {
+            const sp = speedOf(e.player);
+            const acc = 7 + (e.player.attrs.acc / 99) * 9;
+            this.phys.drive(
+              e.body,
+              (this.stick.x / Math.max(1, mag)) * sp,
+              (this.stick.y / Math.max(1, mag)) * sp,
+              acc,
+              dt,
+            );
+          } else {
+            this.phys.drive(e.body, 0, 0, 10, dt);
+          }
         }
         if (e === this.qbEnt && !this.scrambling && e.y > this.losY) this.scrambling = true;
         continue;
@@ -759,17 +886,29 @@ export class ArcadeGame {
   }
 
   private updateBlocker(e: Ent, dt: number): void {
-    // find nearest unengaged rusher
+    // engaged: keep driving THROUGH the rusher so the bodies genuinely shove
     if (e.engagedWith && e.engagedWith.stunTimer <= 0 && e.engageTimer > 0) {
       e.engageTimer -= dt;
       const d = e.engagedWith;
-      // hold position between defender and QB/carrier
+      // drive into the defender, angled to wall him away from the protectee
       const protectee = this.carrier ?? this.qbEnt!;
-      const px = (d.x + protectee.x) / 2;
-      const py = (d.y + protectee.y) / 2;
-      this.moveToward(e, px, py, dt, 0.75);
-      if (e.engageTimer <= 0) {
-        e.engagedWith = null; // shed
+      const awayX = d.x - protectee.x;
+      const awayY = d.y - protectee.y;
+      const al = Math.hypot(awayX, awayY) || 1;
+      // block strength: blk vs str decides who wins the leverage battle
+      const drivePow = 0.55 + (e.player.attrs.blk - d.player.attrs.str) * 0.006;
+      this.moveToward(e, d.x + (awayX / al) * 0.8, d.y + (awayY / al) * 0.8, dt, clamp(drivePow, 0.25, 0.9));
+      if (e.engageTimer <= 0 && this.phys && d.body) {
+        // defender sheds: slip burst around the blocker toward the ball
+        e.engagedWith = null;
+        d.engagedWith = null;
+        const t = this.carrier ?? this.qbEnt!;
+        const sx = t.x - d.x;
+        const sy = t.y - d.y;
+        const sl = Math.hypot(sx, sy) || 1;
+        this.phys.impulse(d.body, (sx / sl) * 5 + this.r.range(-2, 2), (sy / sl) * 5);
+        e.stunTimer = 0.35; // blocker beaten for a beat
+        this.spawnDust((e.x + d.x) / 2, (e.y + d.y) / 2, 4);
       }
       return;
     }
@@ -783,8 +922,8 @@ export class ArcadeGame {
         nearest = d;
       }
     }
-    if (nearest && nd < 1.1 && !e.engagedWith) {
-      // engage: hold time from blk vs str
+    if (nearest && nd < 1.15 && !e.engagedWith) {
+      // engage: hold time from blk vs str; the pad-level pop is physical
       const hold = clamp(
         1.1 + (e.player.attrs.blk - nearest.player.attrs.str) * 0.028 + this.r.gauss(0, 0.25),
         0.35,
@@ -793,6 +932,7 @@ export class ArcadeGame {
       e.engagedWith = nearest;
       nearest.engagedWith = e;
       e.engageTimer = hold;
+      this.spawnDust((e.x + nearest.x) / 2, (e.y + nearest.y) / 2, 3);
     } else if (nearest) {
       this.moveToward(e, nearest.x, nearest.y, dt, 0.85);
     }
@@ -811,9 +951,10 @@ export class ArcadeGame {
         continue;
       }
       if (e.engagedWith) {
-        // pinned by blocker: push slowly toward QB
+        // in the blocker's grasp: bull-rush toward the ball, leverage from str
         const t = this.carrier ?? this.qbEnt!;
-        this.moveToward(e, t.x, t.y, dt, 0.12);
+        const bull = 0.18 + Math.max(0, e.player.attrs.str - e.engagedWith.player.attrs.blk) * 0.004;
+        this.moveToward(e, t.x, t.y, dt, clamp(bull, 0.1, 0.5));
         if (e.engagedWith.engagedWith !== e || e.engagedWith.engageTimer <= 0) e.engagedWith = null;
         continue;
       }
@@ -874,6 +1015,13 @@ export class ArcadeGame {
   }
 
   private updateBall(dt: number): void {
+    if (this.ball.loose) {
+      this.ball.x = clamp(this.ball.x + this.ball.looseVx * dt, 0.2, FIELD_W - 0.2);
+      this.ball.y += this.ball.looseVy * dt;
+      this.ball.looseVx *= Math.pow(0.35, dt); // turf friction
+      this.ball.looseVy *= Math.pow(0.35, dt);
+      return;
+    }
     if (this.ball.inFlight) {
       this.ball.flightT += dt;
       const t = Math.min(1, this.ball.flightT / this.ball.flightDur);
@@ -949,7 +1097,11 @@ export class ArcadeGame {
       this.setBannerFlash('CATCH!');
     } else {
       this.log(`${qb.lastName}'s pass to ${target.player.lastName} is ${sep < 0.5 ? 'broken up' : 'dropped'}.`);
-      this.endPlay('incomplete', 0);
+      if (defEnt && sep < 0.5) {
+        defEnt.lungeT = 0.45; // pass breakup swat
+        this.spawnDust(this.ball.toX, this.ball.toY, 5);
+      }
+      this.freezeThen(0.5, () => this.endPlay('incomplete', 0));
     }
   }
 
@@ -960,47 +1112,88 @@ export class ArcadeGame {
 
   private checkOutcomes(): void {
     if (this.phase !== 'live') return;
+
+    // loose ball scramble: first body on the spot recovers it
+    if (this.ball.loose) {
+      this.ball.looseLockout -= 1 / 60;
+      if (this.ball.looseLockout <= 0) {
+        for (const e of this.ents) {
+          if (e.stunTimer > 0) continue;
+          if (Math.hypot(e.x - this.ball.x, e.y - this.ball.y) < 0.8) {
+            this.recoverFumble(e);
+            return;
+          }
+        }
+      }
+      // rolled out of bounds / dead: offense retains at the spot
+      if (this.ball.x <= 0.4 || this.ball.x >= FIELD_W - 0.4 || this.playElapsed > 16) {
+        this.ball.loose = false;
+        this.log('The fumble rolls out of bounds — offense retains.');
+        this.freezeThen(0.5, () => this.finishLivePlay(this.ball.y - this.losY, false, true));
+      }
+      return;
+    }
+
     const c = this.carrier;
     if (!c) return;
 
-    // touchdown
-    if (c.y >= 110 - (110 - 10 - (100 - this.yardsToGoal)) * 0 + 0) {
-      // goal line is y = 110 (losY + yardsToGoal)
-    }
+    // touchdown → celebration hit-stop with confetti
     if (c.y >= this.losY + this.yardsToGoal) {
-      this.finishLivePlay(this.yardsToGoal + 1, true, false);
+      c.celebT = 1.3;
+      this.spawnConfetti(c.x, c.y);
+      this.freezeThen(1.15, () => this.finishLivePlay(this.yardsToGoal + 1, true, false));
       return;
     }
     // out of bounds
     if (c.x <= 0.4 || c.x >= FIELD_W - 0.4) {
-      this.finishLivePlay(c.y - this.losY, false, true);
+      this.freezeThen(0.4, () => this.finishLivePlay(c.y - this.losY, false, true));
       return;
     }
-    // safety (carried into own end zone)
-    if (c.y <= 10 - 0.5 && this.losY - (100 - this.yardsToGoal) <= 10) {
-      // simplification: treat as big loss, engine clamps
-    }
-    // tackle checks
+    // tackle checks: contact is physical, resolution is a momentum contest
     for (const e of this.ents) {
       if (e.side !== 'def' || e.stunTimer > 0 || e.engagedWith) continue;
       const d = Math.hypot(e.x - c.x, e.y - c.y);
-      if (d < 0.85) {
-        // QB in pocket, ball not thrown → sack
+      if (d < 0.95) {
         const isSack = c === this.qbEnt && !this.passThrown && !this.scrambling && this.play?.type === 'pass';
-        const breakP = tackleBreakProbability(c.player, e.player) * (isSack ? 0.3 : 1);
-        if (this.r.chance(clamp(breakP, 0.03, 0.5))) {
-          e.stunTimer = 0.75;
+        // closing speed feeds the tackle: full-speed hits stick more often
+        const closing = Math.hypot(e.vx - c.vx, e.vy - c.vy);
+        const breakP = tackleBreakProbability(c.player, e.player) * (isSack ? 0.3 : 1) * clamp(1.25 - closing * 0.05, 0.5, 1.25);
+        if (this.r.chance(clamp(breakP, 0.03, 0.55))) {
+          // broken tackle: defender bounces off and eats turf
+          e.stunTimer = 0.8;
+          e.lungeT = 0.5;
+          if (this.phys && e.body && c.body) {
+            const kx = e.x - c.x;
+            const ky = e.y - c.y;
+            const kl = Math.hypot(kx, ky) || 1;
+            this.phys.impulse(e.body, (kx / kl) * 4, (ky / kl) * 4);
+            this.phys.impulse(c.body, (-kx / kl) * 1.2, (-ky / kl) * 1.2);
+          }
+          this.spawnDust((e.x + c.x) / 2, (e.y + c.y) / 2, 6);
+          audio.play('kick');
           continue;
         }
-        // fumble?
+        // fumble? ball pops out and is LIVE on the turf
         if (this.r.chance(fumbleProbability(c.player, true) * (isSack ? 2 : 1))) {
           const l = this.line(this.offStats, c.player);
           this.bump(l, 'fumbles');
           this.bump(this.line(this.defStats, e.player), 'forcedFum');
-          this.log(`${c.player.lastName} FUMBLES! Recovered by ${this.possession === 'user' ? this.cpuTeam.abbr : this.userTeam.abbr}.`);
-          this.turnover('FUMBLE!', 100 - Math.round(clamp(110 - c.y, 1, 99)));
+          this.log(`${c.player.lastName} FUMBLES — the ball is loose!`);
+          this.setBanner('FUMBLE!', 'Ball is loose!');
+          audio.play('tackle');
+          this.shake = Math.min(1, this.shake + 0.7);
+          this.spawnDust(c.x, c.y, 12);
+          c.stunTimer = 0.9;
+          e.lungeT = 0.5;
+          const popA = this.r.range(0, Math.PI * 2);
+          this.ball.loose = true;
+          this.ball.looseVx = Math.cos(popA) * this.r.range(3, 7) + c.vx * 0.4;
+          this.ball.looseVy = Math.sin(popA) * this.r.range(3, 7) + c.vy * 0.4;
+          this.ball.looseLockout = 0.45;
+          this.carrier = null;
           return;
         }
+        // clean tackle: knockback along the hit vector, dust, camera shake
         audio.play('tackle');
         this.bump(this.line(this.defStats, e.player), 'tackles');
         if (isSack) {
@@ -1008,13 +1201,42 @@ export class ArcadeGame {
           this.bump(this.line(this.offStats, c.player), 'sacked');
           this.log(`${c.player.lastName} sacked by ${e.player.lastName}.`);
         }
-        this.finishLivePlay(c.y - this.losY, false, false);
+        if (this.phys && c.body && e.body) {
+          const hx = c.x - e.x;
+          const hy = c.y - e.y;
+          const hl = Math.hypot(hx, hy) || 1;
+          const pop = 2.5 + closing * 0.35 + (e.player.attrs.str / 99) * 2;
+          this.phys.impulse(c.body, (hx / hl) * pop + e.vx * 0.3, (hy / hl) * pop + e.vy * 0.3);
+        }
+        c.stunTimer = 1.0; // carrier down
+        e.lungeT = 0.6; // tackler lunge pose
+        this.shake = Math.min(1, this.shake + 0.35 + closing * 0.04);
+        this.spawnDust((e.x + c.x) / 2, (e.y + c.y) / 2, 9);
+        const spotY = c.y;
+        this.freezeThen(0.8, () => this.finishLivePlay(spotY - this.losY, false, false));
         return;
       }
     }
     // play clock safety: force end after 14 seconds
     if (this.playElapsed > 14) {
       this.finishLivePlay(c.y - this.losY, false, false);
+    }
+  }
+
+  /** A live fumble gets scooped: offense plays on, defense takes over. */
+  private recoverFumble(e: Ent): void {
+    this.ball.loose = false;
+    const offenseSide = 'off';
+    if (e.side === offenseSide) {
+      this.carrier = e;
+      e.route = [];
+      this.log(`${e.player.lastName} falls on the loose ball — offense keeps it!`);
+      this.setBannerFlash('RECOVERED!');
+      audio.play('catch');
+    } else {
+      this.log(`${e.player.lastName} recovers the fumble for the defense!`);
+      const spotYtg = 100 - Math.round(clamp(110 - this.ball.y, 1, 99));
+      this.freezeThen(0.7, () => this.turnover('FUMBLE!', spotYtg));
     }
   }
 

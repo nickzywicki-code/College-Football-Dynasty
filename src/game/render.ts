@@ -40,6 +40,12 @@ export function render(
 ): void {
   const s = cam.scale;
   ctx.imageSmoothingEnabled = false;
+  // camera shake on big hits
+  ctx.save();
+  if (game.shake > 0.01) {
+    const mag = game.shake * 0.5 * s;
+    ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag);
+  }
 
   // out-of-view backdrop
   ctx.fillStyle = '#0a1e10';
@@ -120,7 +126,7 @@ export function render(
   }
 
   // players (sorted by screen Y so lower players overlap upper — painter's order)
-  if (game.phase === 'presnap' || game.phase === 'live') {
+  if (game.phase === 'presnap' || game.phase === 'live' || game.phase === 'playover') {
     const px = Math.max(2, Math.round((2.4 * s) / SPRITE_GRID.h));
     const ents = [...game.ents].sort((a, b) => a.x - b.x);
     for (const e of ents) {
@@ -138,26 +144,48 @@ export function render(
   }
 
   // ball
-  if (game.phase === 'live' || game.phase === 'presnap') {
+  if (game.phase === 'live' || game.phase === 'presnap' || game.phase === 'playover') {
     const bx = sx(cam, game.ball.y);
     let by = sy(cam, game.ball.x);
+    let rot = 0;
     if (game.ball.inFlight) {
       const t = Math.min(1, game.ball.flightT / game.ball.flightDur);
       by -= Math.sin(t * Math.PI) * 2.4 * s; // arc height
+      rot = t * Math.PI * 3; // spiral spin
+    } else if (game.ball.loose) {
+      rot = game.playElapsed * 9; // tumbling fumble
+      by -= Math.abs(Math.sin(game.playElapsed * 8)) * 0.5 * s; // bouncing
     } else {
       by -= 0.9 * s; // carried at waist height
     }
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(rot);
     ctx.fillStyle = '#8a5220';
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.ellipse(bx, by, 0.55 * s, 0.36 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 0.55 * s, 0.36 * s, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    // lace
     ctx.strokeStyle = '#fff';
-    line(ctx, bx - 0.2 * s, by, bx + 0.2 * s, by);
+    line(ctx, -0.2 * s, 0, 0.2 * s, 0);
+    ctx.restore();
   }
+
+  // particles: dust, confetti
+  for (const f of game.fx) {
+    const alpha = Math.max(0, f.life / f.maxLife);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = f.color;
+    const px2 = sx(cam, f.y);
+    const py2 = sy(cam, f.x);
+    const sz = f.size * s;
+    ctx.fillRect(px2 - sz / 2, py2 - sz / 2, sz, sz);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore(); // shake transform
 }
 
 function drawEnt(ctx: CanvasRenderingContext2D, game: ArcadeGame, cam: Camera, e: Ent, px: number): void {
@@ -168,10 +196,14 @@ function drawEnt(ctx: CanvasRenderingContext2D, game: ArcadeGame, cam: Camera, e
 
   let pose: Pose;
   const speed = Math.hypot(e.vx, e.vy);
-  if (e.stunTimer > 0) pose = 'down';
+  if (e.celebT > 0) pose = 'celebrate';
+  else if (e.lungeT > 0) pose = 'tackle';
+  else if (e.stunTimer > 0) pose = 'down';
   else if (game.ball.inFlight && game.ball.targetEnt === e) pose = 'reach';
+  else if (e === game.qbEnt && game.releaseT > 0) pose = 'release';
   else if (e === game.qbEnt && e === game.carrier && game.play?.type === 'pass' && !game.passThrown && speed < 0.6) pose = 'throw';
-  else if (speed > 0.6 || game.phase === 'live' && e.engagedWith) pose = runPose(game.playElapsed + e.player.id * 0.13);
+  else if (e.engagedWith) pose = 'block';
+  else if (speed > 0.6) pose = runPose(game.playElapsed + e.player.id * 0.13);
   else pose = 'idle';
 
   const sprite = getSprite(scheme, pose, px);
