@@ -1,0 +1,194 @@
+// Draft room: pick order, prospect board with scouted ranges, user picks.
+
+import { useMemo, useState } from 'react';
+import { useLeague, useStore } from '../../store/store';
+import { Seg, TeamDot, TopBar } from '../components';
+import { POSITIONS, Position } from '../../engine/types';
+import { positionNeed } from '../../engine/franchise/draft';
+
+export function DraftRoom() {
+  const league = useLeague();
+  useStore((s) => s.rev);
+  const navigate = useStore((s) => s.navigate);
+  const makeUserPick = useStore((s) => s.makeUserPick);
+  const draftUntilUser = useStore((s) => s.draftUntilUser);
+  const [posFilter, setPosFilter] = useState<Position | 'ALL'>('ALL');
+  const [tab, setTab] = useState<'board' | 'picks' | 'mine'>('board');
+
+  const draft = league.draft;
+  const team = league.teams[league.userTeamId];
+
+  const available = useMemo(
+    () =>
+      (draft?.prospects ?? [])
+        .filter((pr) => !pr.drafted)
+        .filter((pr) => posFilter === 'ALL' || league.players[pr.playerId].pos === posFilter)
+        .slice(0, 60),
+    [draft, league, posFilter, league.draft?.currentPickIndex],
+  );
+
+  if (!draft) {
+    return (
+      <>
+        <TopBar title="Draft" back />
+        <div className="screen empty">No draft in progress.</div>
+      </>
+    );
+  }
+
+  const onClock = !draft.complete ? draft.order[draft.currentPickIndex] : null;
+  const userOnClock = onClock?.teamId === league.userTeamId;
+  const myPicks = draft.order.filter((s) => s.teamId === league.userTeamId);
+  const needs = POSITIONS.map((pos) => ({ pos, need: positionNeed(league, team, pos) }))
+    .sort((a, b) => b.need - a.need)
+    .slice(0, 4);
+
+  return (
+    <>
+      <TopBar
+        title="Draft Room"
+        sub={
+          draft.complete
+            ? 'Draft complete'
+            : `R${onClock!.round} P${onClock!.pick} — ${league.teams[onClock!.teamId].abbr} on the clock`
+        }
+        back
+      />
+      <div className="screen">
+        {!draft.complete && (
+          <div className="card">
+            <div className="row">
+              <TeamDot team={league.teams[onClock!.teamId]} size={38} />
+              <div className="grow">
+                <div style={{ fontWeight: 800 }}>
+                  {userOnClock ? "🚨 You're on the clock!" : `${league.teams[onClock!.teamId].city} on the clock`}
+                </div>
+                <div style={{ color: 'var(--dim)', fontSize: '0.78rem' }}>
+                  Round {onClock!.round}, Pick {onClock!.pick} · Your needs:{' '}
+                  {needs.map((n) => n.pos).join(', ')}
+                </div>
+              </div>
+            </div>
+            {!userOnClock && (
+              <button className="btn warn" style={{ marginTop: 12 }} onClick={draftUntilUser}>
+                ⏩ Sim to My Pick
+              </button>
+            )}
+          </div>
+        )}
+        {draft.complete && (
+          <div className="card">
+            <p style={{ fontSize: '0.85rem', color: 'var(--dim)' }}>
+              All 224 picks are in. Head back to the hub to open free agency.
+            </p>
+            <button className="btn" style={{ marginTop: 10 }} onClick={() => navigate('hub')}>
+              Continue ➡️
+            </button>
+          </div>
+        )}
+
+        <Seg<'board' | 'picks' | 'mine'>
+          options={[
+            { key: 'board', label: 'Big Board' },
+            { key: 'picks', label: 'All Picks' },
+            { key: 'mine', label: 'My Picks' },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+
+        {tab === 'board' && (
+          <>
+            <div className="seg" style={{ overflowX: 'auto' }}>
+              {(['ALL', ...POSITIONS] as (Position | 'ALL')[]).map((p) => (
+                <button
+                  key={p}
+                  className={posFilter === p ? 'active' : ''}
+                  style={{ minWidth: 44, flex: '0 0 auto' }}
+                  onClick={() => setPosFilter(p)}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <div className="card">
+              {available.map((pr) => {
+                const p = league.players[pr.playerId];
+                return (
+                  <div key={pr.playerId} className="list-item">
+                    <span className="pos-badge">{p.pos}</span>
+                    <div className="grow">
+                      <div className="name">
+                        {p.firstName} {p.lastName}
+                      </div>
+                      <div className="meta">
+                        {p.age}y · Scouted {pr.scoutedOvr[0]}–{pr.scoutedOvr[1]} OVR · Potential {pr.scoutedPot}
+                      </div>
+                    </div>
+                    {userOnClock ? (
+                      <button className="btn small" onClick={() => makeUserPick(pr.playerId)}>
+                        Draft
+                      </button>
+                    ) : (
+                      <span style={{ color: 'var(--dim)', fontSize: '0.8rem', fontWeight: 700 }}>
+                        {pr.scoutedOvr[0]}–{pr.scoutedOvr[1]}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {tab === 'picks' && (
+          <div className="card">
+            {draft.order
+              .slice(Math.max(0, draft.currentPickIndex - 8), draft.currentPickIndex + 24)
+              .map((s, i) => {
+                const idx = Math.max(0, draft.currentPickIndex - 8) + i;
+                const t = league.teams[s.teamId];
+                const p = s.selectedPlayerId != null ? league.players[s.selectedPlayerId] : null;
+                return (
+                  <div
+                    key={idx}
+                    className="list-item"
+                    style={idx === draft.currentPickIndex ? { background: 'var(--card2)', borderRadius: 8 } : undefined}
+                    onClick={() => p && navigate('player', { playerId: p.id })}
+                  >
+                    <span style={{ width: 52, color: 'var(--dim)', fontSize: '0.72rem', fontWeight: 700 }}>
+                      R{s.round} P{s.pick}
+                    </span>
+                    <TeamDot team={t} size={22} />
+                    <div className="grow name" style={{ fontSize: '0.83rem' }}>
+                      {p ? `${p.pos} ${p.firstName} ${p.lastName}` : idx === draft.currentPickIndex ? 'On the clock…' : '—'}
+                    </div>
+                    {p && <span style={{ fontSize: '0.78rem', color: 'var(--dim)' }}>{p.overall}</span>}
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
+        {tab === 'mine' && (
+          <div className="card">
+            {myPicks.map((s, i) => {
+              const p = s.selectedPlayerId != null ? league.players[s.selectedPlayerId] : null;
+              return (
+                <div key={i} className="list-item" onClick={() => p && navigate('player', { playerId: p.id })}>
+                  <span style={{ width: 52, color: 'var(--dim)', fontSize: '0.72rem', fontWeight: 700 }}>
+                    R{s.round} P{s.pick}
+                  </span>
+                  <div className="grow name" style={{ fontSize: '0.85rem' }}>
+                    {p ? `${p.pos} ${p.firstName} ${p.lastName} (${p.overall} OVR)` : 'Upcoming'}
+                  </div>
+                </div>
+              );
+            })}
+            {myPicks.length === 0 && <p className="empty">You traded away all your picks!</p>}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}

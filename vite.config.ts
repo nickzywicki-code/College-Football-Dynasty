@@ -1,30 +1,37 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
-// https://vite.dev/config/
+// On GitHub Pages the app is served from /<repo>/, so assets need that base.
+// Local dev/build stay at root.
+const base = process.env.GITHUB_ACTIONS ? '/College-Football-Dynasty/' : '/';
+
 export default defineConfig({
-  base: './',
+  base,
   plugins: [
     react(),
-    tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'Gridiron Legacy',
-        short_name: 'Gridiron Legacy',
-        description: 'Build a college football dynasty from the ground up.',
-        theme_color: '#0b1220',
-        background_color: '#0b1220',
+        name: 'Gridiron Land',
+        short_name: 'Gridiron',
+        description:
+          'Football franchise game: playable 2D arcade games plus a deep league simulation.',
+        theme_color: '#0b3d2e',
+        background_color: '#0a0f0d',
         display: 'standalone',
         orientation: 'portrait',
         icons: [
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' },
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
         ],
       },
     }),
   ],
-})
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
+  },
+} as Parameters<typeof defineConfig>[0]);

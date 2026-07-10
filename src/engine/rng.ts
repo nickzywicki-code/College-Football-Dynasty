@@ -1,71 +1,88 @@
-// Deterministic seeded PRNG (mulberry32) so a given save seed reproduces
-// the same world generation, while in-game sim rolls use a live stream.
+// Seeded RNG (mulberry32) so sims are reproducible and testable.
 
-export class RNG {
-  private state: number
+export type Rng = () => number;
 
-  constructor(seed: number) {
-    this.state = seed >>> 0
+export function mulberry32(seed: number): Rng {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function randomSeed(): number {
+  return (Math.random() * 2 ** 32) >>> 0;
+}
+
+export class Rand {
+  private next: Rng;
+
+  constructor(seed: number = randomSeed()) {
+    this.next = mulberry32(seed);
   }
 
-  next(): number {
-    this.state |= 0
-    this.state = (this.state + 0x6d2b79f5) | 0
-    let t = Math.imul(this.state ^ (this.state >>> 15), 1 | this.state)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  /** Uniform in [0, 1) */
+  random(): number {
+    return this.next();
   }
 
+  /** Uniform float in [min, max) */
+  range(min: number, max: number): number {
+    return min + this.next() * (max - min);
+  }
+
+  /** Uniform integer in [min, max] inclusive */
   int(min: number, max: number): number {
-    return Math.floor(this.next() * (max - min + 1)) + min
+    return Math.floor(this.range(min, max + 1));
   }
 
-  float(min: number, max: number): number {
-    return this.next() * (max - min) + min
+  /** True with probability p */
+  chance(p: number): boolean {
+    return this.next() < p;
   }
 
-  bool(chance = 0.5): boolean {
-    return this.next() < chance
+  /** Normal distribution via Box-Muller */
+  gauss(mean = 0, sd = 1): number {
+    let u = 0;
+    let v = 0;
+    while (u === 0) u = this.next();
+    while (v === 0) v = this.next();
+    return mean + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
 
-  pick<T>(arr: readonly T[]): T {
-    return arr[Math.floor(this.next() * arr.length)]
+  /** Normal clamped to [min, max] */
+  gaussClamp(mean: number, sd: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, this.gauss(mean, sd)));
   }
 
-  weighted<T>(items: { value: T; weight: number }[]): T {
-    const total = items.reduce((s, i) => s + i.weight, 0)
-    let roll = this.next() * total
-    for (const item of items) {
-      if (roll < item.weight) return item.value
-      roll -= item.weight
+  choice<T>(arr: readonly T[]): T {
+    return arr[Math.floor(this.next() * arr.length)];
+  }
+
+  /** Weighted choice; weights need not sum to 1 */
+  weighted<T>(items: readonly T[], weights: readonly number[]): T {
+    let total = 0;
+    for (const w of weights) total += w;
+    let r = this.next() * total;
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return items[i];
     }
-    return items[items.length - 1].value
+    return items[items.length - 1];
   }
 
   shuffle<T>(arr: T[]): T[] {
-    const a = [...arr]
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(this.next() * (i + 1))
-      ;[a[i], a[j]] = [a[j], a[i]]
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(this.next() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    return a
-  }
-
-  // gaussian-ish via sum of uniforms, clamped
-  normal(mean: number, stdDev: number): number {
-    const u1 = this.next() || 1e-9
-    const u2 = this.next()
-    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
-    return mean + z * stdDev
+    return arr;
   }
 }
 
-export function makeSeed(): number {
-  return Math.floor(Math.random() * 2 ** 31)
-}
-
-let idCounter = 0
-export function genId(prefix: string): string {
-  idCounter += 1
-  return `${prefix}_${Date.now().toString(36)}_${idCounter.toString(36)}`
+export function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
 }

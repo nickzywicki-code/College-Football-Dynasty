@@ -1,145 +1,203 @@
-import type { ClassYear, DevTrait, Player, Position, RatingBlock } from '../state/types'
-import { emptySeasonStats } from '../state/types'
-import { CITY_NAMES, FIRST_NAMES, LAST_NAMES, US_STATES } from '../data/names'
-import { RNG, genId } from './rng'
+// Player generation: position archetypes, attribute distributions, overall calc.
 
-export const OVERALL_WEIGHTS: Record<Position, Partial<Record<keyof RatingBlock, number>>> = {
-  QB: { throwing: 0.40, awareness: 0.25, agility: 0.15, speed: 0.10, strength: 0.10 },
-  RB: { speed: 0.30, agility: 0.25, strength: 0.15, blocking: 0.10, catching: 0.10, awareness: 0.10 },
-  WR: { catching: 0.35, speed: 0.30, agility: 0.20, awareness: 0.15 },
-  TE: { catching: 0.25, blocking: 0.30, strength: 0.15, speed: 0.15, awareness: 0.15 },
-  OL: { blocking: 0.55, strength: 0.30, awareness: 0.15 },
-  DL: { passRush: 0.40, strength: 0.30, tackling: 0.20, awareness: 0.10 },
-  LB: { tackling: 0.30, coverage: 0.20, passRush: 0.20, speed: 0.15, awareness: 0.15 },
-  CB: { coverage: 0.45, speed: 0.30, agility: 0.15, awareness: 0.10 },
-  S: { coverage: 0.30, tackling: 0.30, speed: 0.20, awareness: 0.20 },
-  K: { kicking: 0.85, awareness: 0.15 },
-  P: { kicking: 0.85, awareness: 0.15 },
-}
+import { Rand, clamp } from './rng';
+import { randomFirstName, randomLastName } from './names';
+import type { Attributes, AttrKey, Player, Position } from './types';
 
-const PRIMARY_FIELDS: Record<Position, (keyof RatingBlock)[]> = {
-  QB: ['throwing', 'awareness'],
-  RB: ['speed', 'agility'],
-  WR: ['catching', 'speed'],
-  TE: ['catching', 'blocking'],
-  OL: ['blocking', 'strength'],
-  DL: ['passRush', 'strength'],
-  LB: ['tackling', 'coverage'],
-  CB: ['coverage', 'speed'],
-  S: ['coverage', 'tackling'],
-  K: ['kicking'],
-  P: ['kicking'],
-}
+/** Weights used to compute a position's overall rating (must sum to 1). */
+export const OVERALL_WEIGHTS: Record<Position, Partial<Record<AttrKey, number>>> = {
+  QB: { tha: 0.34, thp: 0.22, awr: 0.2, spd: 0.08, agi: 0.08, str: 0.04, sta: 0.04 },
+  RB: { spd: 0.24, agi: 0.22, str: 0.14, car: 0.16, cth: 0.08, acc: 0.12, sta: 0.04 },
+  WR: { spd: 0.26, cth: 0.28, agi: 0.18, acc: 0.14, awr: 0.1, str: 0.04 },
+  TE: { cth: 0.26, blk: 0.2, str: 0.16, spd: 0.16, agi: 0.1, awr: 0.12 },
+  OL: { blk: 0.5, str: 0.28, awr: 0.14, agi: 0.08 },
+  DL: { str: 0.3, tkl: 0.26, spd: 0.16, agi: 0.14, awr: 0.14 },
+  LB: { tkl: 0.28, spd: 0.2, cov: 0.16, str: 0.16, awr: 0.2 },
+  CB: { cov: 0.34, spd: 0.26, agi: 0.18, tkl: 0.08, awr: 0.14 },
+  S: { cov: 0.26, tkl: 0.2, spd: 0.22, awr: 0.2, agi: 0.12 },
+  K: { kck: 0.8, awr: 0.2 },
+  P: { kck: 0.8, awr: 0.2 },
+};
 
-const ALL_RATING_KEYS: (keyof RatingBlock)[] = [
-  'speed', 'strength', 'agility', 'awareness', 'throwing', 'catching',
-  'blocking', 'passRush', 'coverage', 'tackling', 'kicking',
-]
+/** Which attrs are "core" for a position — generated higher and developed faster. */
+const CORE_ATTRS: Record<Position, AttrKey[]> = {
+  QB: ['tha', 'thp', 'awr'],
+  RB: ['spd', 'agi', 'car', 'acc', 'str'],
+  WR: ['spd', 'cth', 'agi', 'acc'],
+  TE: ['cth', 'blk', 'str', 'spd'],
+  OL: ['blk', 'str', 'awr'],
+  DL: ['str', 'tkl', 'spd', 'agi'],
+  LB: ['tkl', 'spd', 'cov', 'str', 'awr'],
+  CB: ['cov', 'spd', 'agi'],
+  S: ['cov', 'tkl', 'spd', 'awr'],
+  K: ['kck'],
+  P: ['kck'],
+};
 
-export function computeOverall(position: Position, ratings: RatingBlock): number {
-  const weights = OVERALL_WEIGHTS[position]
-  let total = 0
-  for (const key of Object.keys(weights) as (keyof RatingBlock)[]) {
-    total += ratings[key] * (weights[key] ?? 0)
+const ALL_ATTRS: AttrKey[] = [
+  'spd', 'acc', 'str', 'agi', 'thp', 'tha', 'cth', 'car', 'blk', 'tkl', 'cov', 'kck', 'sta', 'awr',
+];
+
+/** Baseline speed by position so OL don't outrun WRs in the arcade game. */
+const SPEED_BASE: Record<Position, number> = {
+  QB: 62, RB: 78, WR: 82, TE: 68, OL: 42, DL: 55, LB: 68, CB: 82, S: 78, K: 50, P: 50,
+};
+
+const JERSEY_RANGES: Record<Position, [number, number]> = {
+  QB: [1, 19], RB: [20, 39], WR: [10, 89], TE: [80, 89], OL: [50, 79],
+  DL: [50, 99], LB: [40, 59], CB: [20, 39], S: [20, 49], K: [1, 9], P: [1, 9],
+};
+
+export function computeOverall(pos: Position, attrs: Attributes): number {
+  const weights = OVERALL_WEIGHTS[pos];
+  let total = 0;
+  for (const key of Object.keys(weights) as AttrKey[]) {
+    total += attrs[key] * (weights[key] ?? 0);
   }
-  return Math.round(clamp(total, 30, 99))
+  return Math.round(clamp(total, 1, 99));
 }
 
-function clamp(v: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, v))
-}
-
-export function starsForTalent(rng: RNG, talent: number): 1 | 2 | 3 | 4 | 5 {
-  // talent 0-1 biases the roll
-  const roll = rng.next() + (talent - 0.5) * 0.6
-  if (roll > 0.93) return 5
-  if (roll > 0.75) return 4
-  if (roll > 0.45) return 3
-  if (roll > 0.18) return 2
-  return 1
-}
-
-export function potentialForStars(rng: RNG, stars: number): number {
-  const ranges: Record<number, [number, number]> = {
-    5: [90, 99], 4: [82, 92], 3: [72, 85], 2: [62, 76], 1: [50, 66],
+/**
+ * Generate attributes targeting a rough quality level (1-99).
+ * Core attrs cluster near `quality`; non-core attrs are lower and noisier.
+ */
+export function generateAttributes(r: Rand, pos: Position, quality: number): Attributes {
+  const attrs = {} as Attributes;
+  const core = CORE_ATTRS[pos];
+  for (const key of ALL_ATTRS) {
+    if (key === 'spd') {
+      const base = SPEED_BASE[pos];
+      const lift = core.includes('spd') ? (quality - 70) * 0.45 : (quality - 70) * 0.2;
+      attrs.spd = Math.round(r.gaussClamp(base + lift, 5, 20, 99));
+    } else if (core.includes(key)) {
+      attrs[key] = Math.round(r.gaussClamp(quality, 6, 25, 99));
+    } else {
+      attrs[key] = Math.round(r.gaussClamp(quality - 22, 10, 15, 90));
+    }
   }
-  const [lo, hi] = ranges[stars] ?? [55, 70]
-  return rng.int(lo, hi)
+  // stamina and awareness get a floor so sims behave
+  attrs.sta = Math.round(r.gaussClamp(Math.max(attrs.sta, 60), 8, 40, 99));
+  // kickers can't throw/block etc — dampen irrelevant attrs slightly for flavor realism
+  if (pos === 'K' || pos === 'P') {
+    attrs.str = Math.min(attrs.str, 60);
+    attrs.tkl = Math.min(attrs.tkl, 45);
+  }
+  if (pos !== 'QB') {
+    attrs.thp = Math.min(attrs.thp, 55);
+    attrs.tha = Math.min(attrs.tha, 50);
+  }
+  return attrs;
 }
 
-export function devTraitForStars(rng: RNG, stars: number): DevTrait {
-  const table: Record<number, { value: DevTrait; weight: number }[]> = {
-    5: [{ value: 'Elite', weight: 35 }, { value: 'Star', weight: 40 }, { value: 'Impact', weight: 20 }, { value: 'Normal', weight: 5 }],
-    4: [{ value: 'Elite', weight: 10 }, { value: 'Star', weight: 35 }, { value: 'Impact', weight: 35 }, { value: 'Normal', weight: 20 }],
-    3: [{ value: 'Elite', weight: 2 }, { value: 'Star', weight: 13 }, { value: 'Impact', weight: 35 }, { value: 'Normal', weight: 50 }],
-    2: [{ value: 'Star', weight: 4 }, { value: 'Impact', weight: 21 }, { value: 'Normal', weight: 75 }],
-    1: [{ value: 'Impact', weight: 8 }, { value: 'Normal', weight: 92 }],
-  }
-  return rng.weighted(table[stars] ?? table[2])
+export interface GeneratePlayerOpts {
+  pos: Position;
+  age: number;
+  /** target quality of core ratings, ~40-95 */
+  quality: number;
+  teamId: number;
 }
 
-function generateRatings(rng: RNG, position: Position, talent: number): RatingBlock {
-  const primary = PRIMARY_FIELDS[position]
-  const base: RatingBlock = {
-    speed: 45, strength: 45, agility: 45, awareness: 40, throwing: 30,
-    catching: 30, blocking: 35, passRush: 30, coverage: 30, tackling: 40, kicking: 25,
-  }
-  const talentMean = 55 + talent * 30 // 55-85 mean for primary fields
-  for (const key of ALL_RATING_KEYS) {
-    const isPrimary = primary.includes(key)
-    const mean = isPrimary ? talentMean : base[key] + talent * 15
-    const stdDev = isPrimary ? 7 : 10
-    base[key] = Math.round(clamp(rng.normal(mean, stdDev), 25, 99))
-  }
-  return base
+let usedJerseyScratch: Set<number> | null = null;
+
+/** Optionally provide a set of taken jersey numbers so teammates don't collide. */
+export function setJerseyScratch(taken: Set<number> | null): void {
+  usedJerseyScratch = taken;
 }
 
-const REDSHIRT_ELIGIBLE_DEFAULT = true
-
-export function generatePlayer(rng: RNG, position: Position, classYear: ClassYear, opts?: { minStars?: number; maxStars?: number; talentBias?: number }): Player {
-  const talent = clamp((opts?.talentBias ?? rng.next()), 0, 1)
-  const stars = clampStars(starsForTalent(rng, talent), opts?.minStars, opts?.maxStars)
-  const ratings = generateRatings(rng, position, talent)
-  const overall = computeOverall(position, ratings)
-  const potential = Math.max(overall, potentialForStars(rng, stars))
-  const devTrait = devTraitForStars(rng, stars)
-
+export function generatePlayer(r: Rand, id: number, opts: GeneratePlayerOpts): Player {
+  const attrs = generateAttributes(r, opts.pos, opts.quality);
+  const [jMin, jMax] = JERSEY_RANGES[opts.pos];
+  let jersey = r.int(jMin, jMax);
+  if (usedJerseyScratch) {
+    for (let tries = 0; tries < 60 && usedJerseyScratch.has(jersey); tries++) {
+      jersey = r.int(1, 99);
+    }
+    usedJerseyScratch.add(jersey);
+  }
+  // Potential: young players may have high ceilings; older players are what they are.
+  const overall = computeOverall(opts.pos, attrs);
+  let potential: number;
+  if (opts.age <= 24) {
+    potential = Math.round(clamp(overall + Math.max(0, r.gauss(9, 7)), overall, 99));
+  } else {
+    potential = Math.round(clamp(overall + Math.max(0, r.gauss(2, 3)), overall, 99));
+  }
   return {
-    id: genId('plyr'),
-    firstName: rng.pick(FIRST_NAMES),
-    lastName: rng.pick(LAST_NAMES),
-    position,
-    teamId: null,
-    classYear,
-    redshirted: false,
-    redshirtEligible: REDSHIRT_ELIGIBLE_DEFAULT,
-    stars,
+    id,
+    firstName: randomFirstName(r),
+    lastName: randomLastName(r),
+    pos: opts.pos,
+    age: opts.age,
+    jersey,
+    attrs,
     potential,
-    devTrait,
-    ratings,
     overall,
-    stamina: 100,
-    morale: rng.int(60, 90),
-    homeState: rng.pick(US_STATES),
-    injuryWeeksLeft: 0,
-    seasonStats: emptySeasonStats(),
-    careerStats: emptySeasonStats(),
+    teamId: opts.teamId,
+    contract: null,
+    injuryWeeks: 0,
+    yearsPro: Math.max(0, opts.age - 22),
+    draftInfo: null,
+    stats: [],
     awards: [],
-    yearsOnTeam: 0,
+    retired: false,
+  };
+}
+
+/** Expected market salary in $M/yr given overall, age, position. */
+export function marketSalary(p: { overall: number; age: number; pos: Position }): number {
+  // 60 ovr backup ≈ $1.1M; 80 ovr starter ≈ $9M; 92 ovr star QB ≈ $38M
+  const posMult: Record<Position, number> = {
+    QB: 1.9, RB: 0.8, WR: 1.15, TE: 0.9, OL: 1.0, DL: 1.15, LB: 0.95, CB: 1.1, S: 0.9, K: 0.35, P: 0.3,
+  };
+  const o = p.overall;
+  let base: number;
+  if (o < 60) base = 0.8 + (o - 40) * 0.015;
+  else if (o < 75) base = 1.1 + (o - 60) * 0.22;
+  else if (o < 85) base = 4.4 + (o - 75) * 0.95;
+  else base = 13.9 + (o - 85) * 1.8;
+  // age discount for veterans past 30
+  const ageMult = p.age >= 31 ? Math.max(0.55, 1 - (p.age - 30) * 0.08) : 1;
+  return Math.max(0.75, Math.round(base * posMult[p.pos] * ageMult * 10) / 10);
+}
+
+/** How a player's core attrs shift in one offseason. Positive early, negative late. */
+export function agingDelta(r: Rand, p: Player): number {
+  const peakAge = p.pos === 'RB' ? 26 : p.pos === 'QB' || p.pos === 'K' || p.pos === 'P' ? 30 : 27;
+  const declineRate = p.pos === 'RB' ? 1.6 : 1.1;
+  if (p.age < peakAge) {
+    // growth scaled by remaining potential gap
+    const gap = Math.max(0, p.potential - p.overall);
+    const youth = (peakAge - p.age) / peakAge;
+    return Math.max(0, r.gauss(gap * 0.35 * (0.5 + youth), 1.6));
   }
+  if (p.age <= peakAge + 2) {
+    return r.gauss(0, 1.0); // plateau
+  }
+  const yearsPast = p.age - (peakAge + 2);
+  return -Math.max(0, r.gauss(yearsPast * declineRate, 1.4));
 }
 
-function clampStars(s: number, min?: number, max?: number): 1 | 2 | 3 | 4 | 5 {
-  let v = s
-  if (min) v = Math.max(v, min)
-  if (max) v = Math.min(v, max)
-  return clamp(v, 1, 5) as 1 | 2 | 3 | 4 | 5
+/** Apply an overall delta by nudging attributes (core attrs move most). */
+export function applyDevelopment(r: Rand, p: Player, delta: number): void {
+  if (delta === 0) return;
+  const core = CORE_ATTRS[p.pos];
+  const perAttr = delta / core.length;
+  for (const key of core) {
+    p.attrs[key] = Math.round(clamp(p.attrs[key] + r.gauss(perAttr * 1.3, 1), 15, 99));
+  }
+  // physical decline also hits speed/acceleration for everyone
+  if (delta < 0) {
+    p.attrs.spd = Math.round(clamp(p.attrs.spd + r.gauss(delta * 0.4, 0.6), 15, 99));
+    p.attrs.acc = Math.round(clamp(p.attrs.acc + r.gauss(delta * 0.4, 0.6), 15, 99));
+  }
+  p.overall = computeOverall(p.pos, p.attrs);
 }
 
-export function randomHometown(rng: RNG): string {
-  return `${rng.pick(CITY_NAMES)}, ${rng.pick(US_STATES)}`
-}
-
-export function fullName(p: Player | { firstName: string; lastName: string }): string {
-  return `${p.firstName} ${p.lastName}`
+export function retirementChance(p: Player): number {
+  const lateAge = p.pos === 'QB' || p.pos === 'K' || p.pos === 'P' ? 36 : p.pos === 'RB' ? 30 : 32;
+  if (p.age < lateAge - 2) return 0;
+  const over = p.age - (lateAge - 2);
+  let chance = over * 0.16;
+  if (p.overall < 62) chance += 0.25; // fringe players hang it up sooner
+  return clamp(chance, 0, 0.97);
 }
