@@ -46,6 +46,7 @@ export function Roster() {
             🔁 Trade Center
           </button>
         </div>
+        <div className="cardgrid">
         {GROUPS[filter].map((pos) => {
           const ids = team.depthChart[pos];
           if (!ids.length) return null;
@@ -74,6 +75,7 @@ export function Roster() {
             </div>
           );
         })}
+        </div>
       </div>
     </>
   );

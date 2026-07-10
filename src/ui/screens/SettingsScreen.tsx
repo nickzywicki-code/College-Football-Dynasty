@@ -1,10 +1,14 @@
 // More/settings: game options, extras, save management.
 
+import { useState } from 'react';
 import { useLeague, useStore } from '../../store/store';
 import { TopBar } from '../components';
+import { audio } from '../../game/audio';
 
 export function SettingsScreen() {
   const league = useLeague();
+  const [soundOn, setSoundOn] = useState(audio.soundOn);
+  const [musicOn, setMusicOn] = useState(audio.musicOn);
   useStore((s) => s.rev);
   const navigate = useStore((s) => s.navigate);
   const touch = useStore((s) => s.touch);
@@ -28,6 +32,30 @@ export function SettingsScreen() {
           </div>
           <div className="list-item" onClick={() => navigate('history')}>
             <div className="grow name">🏆 League History & Records</div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2>Sound</h2>
+          <div className="btnrow" style={{ marginTop: 0 }}>
+            <button
+              className={`btn ${soundOn ? '' : 'secondary'}`}
+              onClick={() => {
+                audio.setSound(!soundOn);
+                setSoundOn(!soundOn);
+              }}
+            >
+              🔊 SFX {soundOn ? 'ON' : 'OFF'}
+            </button>
+            <button
+              className={`btn ${musicOn ? '' : 'secondary'}`}
+              onClick={() => {
+                audio.setMusic(!musicOn);
+                setMusicOn(!musicOn);
+              }}
+            >
+              🎵 MUSIC {musicOn ? 'ON' : 'OFF'}
+            </button>
           </div>
         </div>
 

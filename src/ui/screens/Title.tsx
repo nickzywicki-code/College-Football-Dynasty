@@ -58,7 +58,7 @@ export function Title() {
   }
 
   return (
-    <div className="screen">
+    <div className="screen title-wrap">
       <div className="title-hero">
         <div className="logo">🏈</div>
         <h1>GRIDIRON LAND</h1>
