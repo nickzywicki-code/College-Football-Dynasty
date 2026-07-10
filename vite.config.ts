@@ -12,6 +12,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // We register the service worker ourselves in main.tsx so we can force
+      // an immediate reload when a new version takes control — otherwise an
+      // already-open tab keeps running the stale cached build after a deploy.
+      injectRegister: false,
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'Gridiron Land',
