@@ -53,7 +53,7 @@ h1.pixel,
 .banner .big,
 .card h2,
 .playgrid button .pname,
-.hud-top {
+.scorebug {
   font-family: 'PixelDisplay', monospace;
 }
 
@@ -727,30 +727,108 @@ h1.pixel,
   image-rendering: pixelated;
 }
 
-.hud-top {
+/* ---------------------- Madden-style broadcast scorebug ---------------- */
+.scorebug {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: calc(6px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: calc(6px + env(safe-area-inset-top, 0px)) 16px 8px;
-  background: linear-gradient(rgba(4, 8, 5, 0.95), rgba(4, 8, 5, 0));
+  align-items: stretch;
+  gap: 0;
   pointer-events: none;
-  font-size: 0.6rem;
-  z-index: 3;
-  line-height: 1.7;
-}
-
-.hud-top .clock {
-  text-align: center;
+  z-index: 4;
+  border: 2px solid #05070c;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #1a2130 0%, #0d1119 100%);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
   font-variant-numeric: tabular-nums;
 }
 
-.hud-top .clock .downdist {
-  font-size: 0.46rem;
+.sb-team {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+}
+.sb-team.right {
+  flex-direction: row-reverse;
+}
+
+.sb-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+.sb-abbr {
+  font-size: 0.62rem;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  letter-spacing: 0.02em;
+}
+.sb-ball {
+  position: absolute;
+  bottom: -9px;
+  font-size: 0.6rem;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8));
+}
+.sb-score {
+  min-width: 20px;
+  text-align: center;
+  font-size: 1.15rem;
+  color: #fff;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.7);
+}
+
+.sb-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  background: linear-gradient(180deg, #0a0d14 0%, #05070c 100%);
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  border-right: 2px solid rgba(255, 255, 255, 0.08);
+  min-width: 96px;
+}
+.sb-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.sb-q {
+  font-size: 0.5rem;
   color: var(--gold);
+  letter-spacing: 0.04em;
+}
+.sb-time {
+  font-size: 0.8rem;
+  color: #fff;
+}
+.sb-situation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.sb-dd {
+  font-size: 0.44rem;
+  color: #e8edf6;
+  letter-spacing: 0.02em;
+}
+.sb-spot {
+  font-size: 0.44rem;
+  color: var(--gold);
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .playcall {
