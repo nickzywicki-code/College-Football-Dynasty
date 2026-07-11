@@ -96,6 +96,9 @@ export function Title() {
       <p className="empty">
         32 fictional teams · full seasons, playoffs & draft · playable arcade games
       </p>
+      <p className="empty" style={{ padding: '4px 10px', fontSize: '0.62rem', opacity: 0.55 }}>
+        build {__BUILD_TAG__}
+      </p>
     </div>
   );
 }

@@ -1,15 +1,37 @@
-import { defineConfig } from 'vite';
+import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { writeFileSync, mkdirSync } from 'node:fs';
 
 // On GitHub Pages the app is served from /<repo>/, so assets need that base.
 // Local dev/build stay at root.
 const base = process.env.GITHUB_ACTIONS ? '/College-Football-Dynasty/' : '/';
 
+// Build identity: lets the running app detect that a newer deploy exists
+// (version.json is fetched cache-busted) and shows a visible stamp in the UI.
+const buildId = String(Date.now());
+const buildTag = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+
+function emitVersionJson(): Plugin {
+  return {
+    name: 'emit-version-json',
+    apply: 'build',
+    writeBundle() {
+      mkdirSync('dist', { recursive: true });
+      writeFileSync('dist/version.json', JSON.stringify({ build: buildId, tag: buildTag }));
+    },
+  };
+}
+
 export default defineConfig({
   base,
+  define: {
+    __BUILD_ID__: JSON.stringify(buildId),
+    __BUILD_TAG__: JSON.stringify(buildTag),
+  },
   plugins: [
     react(),
+    emitVersionJson(),
     VitePWA({
       registerType: 'autoUpdate',
       // We register the service worker ourselves in main.tsx so we can force
