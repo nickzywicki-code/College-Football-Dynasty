@@ -62,6 +62,8 @@ export interface Ent {
   lungeT: number; // tackle-lunge pose timer
   celebT: number; // celebration pose timer
   animPhase: number; // run-cycle phase, advanced by actual speed
+  diveCd: number; // cooldown between tackle-dive attempts
+  diving: boolean; // mid-dive: widened tackle radius, whiff = eat turf
 }
 
 export interface Particle {
@@ -108,7 +110,7 @@ export interface HudState {
   userHasBall: boolean;
   banner: { big: string; small: string } | null;
   lastPlayText: string;
-  receivers: { slot: EligibleSlot; label: string }[];
+  receivers: { slot: EligibleSlot; label: string; color: string }[];
   meter: { value: number; kind: 'fg' | 'punt' | 'xp'; zoneLo: number; zoneHi: number } | null;
   canJuke: boolean;
   gameOver: boolean;
@@ -176,6 +178,8 @@ export class ArcadeGame {
     flightT: 0, flightDur: 0, fromX: 0, fromY: 0, toX: 0, toY: 0, targetEnt: null,
   };
   phys: PhysicsWorld | null = null;
+  /** screen-space throw-icon hit circles, refreshed by the renderer each frame */
+  iconHits: { slot: EligibleSlot; x: number; y: number; r: number }[] = [];
   fx: Particle[] = [];
   shake = 0;
   releaseT = 0; // QB throw-release pose timer
@@ -553,7 +557,7 @@ export class ArcadeGame {
         x: midX + rel.x, y: this.losY + rel.y,
         vx: 0, vy: 0, targetX: midX + rel.x, targetY: this.losY + rel.y,
         route: [], routeIdx: 0, engagedWith: null, engageTimer: 0, stunTimer: 0, isBlocking: false,
-        body: null, lungeT: 0, celebT: 0, animPhase: 0,
+        body: null, lungeT: 0, celebT: 0, animPhase: 0, diveCd: 0, diving: false,
       });
     };
     const addOff = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'off', role, rel);
@@ -810,8 +814,17 @@ export class ArcadeGame {
 
   private updatePoseTimers(dt: number): void {
     for (const e of this.ents) {
-      if (e.lungeT > 0) e.lungeT -= dt;
+      if (e.lungeT > 0) {
+        e.lungeT -= dt;
+        if (e.lungeT <= 0 && e.diving) {
+          // dive missed: defender eats turf and needs a beat to get up
+          e.diving = false;
+          e.stunTimer = Math.max(e.stunTimer, 0.55);
+          this.spawnDust(e.x, e.y, 4);
+        }
+      }
       if (e.celebT > 0) e.celebT -= dt;
+      if (e.diveCd > 0) e.diveCd -= dt;
     }
   }
 
@@ -955,8 +968,14 @@ export class ArcadeGame {
         continue;
       }
       if (e.engagedWith) {
-        // in the blocker's grasp: bull-rush toward the ball, leverage from str
         const t = this.carrier ?? this.qbEnt!;
+        // carrier already ran past this battle: rip off the block and chase
+        if (this.carrier && this.carrier !== this.qbEnt && Math.abs(this.carrier.y - e.y) > 2.5) {
+          e.engagedWith.engagedWith = null;
+          e.engagedWith = null;
+          continue;
+        }
+        // in the blocker's grasp: bull-rush toward the ball, leverage from str
         const bull = 0.18 + Math.max(0, e.player.attrs.str - e.engagedWith.player.attrs.blk) * 0.004;
         this.moveToward(e, t.x, t.y, dt, clamp(bull, 0.1, 0.5));
         if (e.engagedWith.engagedWith !== e || e.engagedWith.engageTimer <= 0) e.engagedWith = null;
@@ -968,9 +987,26 @@ export class ArcadeGame {
 
       // ball carrier pursuit dominates everything once ball is committed
       if (carrier && (carrier !== this.qbEnt || this.scrambling || play.type === 'run')) {
-        // intercept angle
-        const lead = clamp(Math.hypot(carrier.x - e.x, carrier.y - e.y) * 0.18, 0, 1.4);
-        this.moveToward(e, carrier.x + carrier.vx * lead, carrier.y + carrier.vy * lead, dt);
+        const dist = Math.hypot(carrier.x - e.x, carrier.y - e.y);
+        const mySpeed = speedOf(e.player);
+        if (dist > 3) {
+          // true intercept: aim where the carrier will be when I can arrive
+          const t = Math.min(0.7, dist / Math.max(4, mySpeed));
+          this.moveToward(e, carrier.x + carrier.vx * t, carrier.y + carrier.vy * t, dt);
+        } else {
+          // attack phase: aim straight at the body, no overshooting lead
+          this.moveToward(e, carrier.x + carrier.vx * 0.08, carrier.y + carrier.vy * 0.08, dt);
+          // dive attempt: close, off cooldown, and actually closing in
+          if (dist < 1.9 && e.diveCd <= 0 && this.phys && e.body) {
+            const dvx = carrier.x + carrier.vx * 0.15 - e.x;
+            const dvy = carrier.y + carrier.vy * 0.15 - e.y;
+            const dl = Math.hypot(dvx, dvy) || 1;
+            this.phys.impulse(e.body, (dvx / dl) * 7.5, (dvy / dl) * 7.5);
+            e.lungeT = 0.38;
+            e.diving = true;
+            e.diveCd = 1.3;
+          }
+        }
         continue;
       }
 
@@ -1157,7 +1193,9 @@ export class ArcadeGame {
     for (const e of this.ents) {
       if (e.side !== 'def' || e.stunTimer > 0 || e.engagedWith) continue;
       const d = Math.hypot(e.x - c.x, e.y - c.y);
-      if (d < 0.95) {
+      const reach = e.diving ? 1.45 : 1.1; // outstretched arms mid-dive
+      if (d < reach) {
+        e.diving = false; // contact made — resolve the attempt
         const isSack = c === this.qbEnt && !this.passThrown && !this.scrambling && this.play?.type === 'pass';
         // closing speed feeds the tackle: full-speed hits stick more often
         const closing = Math.hypot(e.vx - c.vx, e.vy - c.vy);
@@ -1223,7 +1261,8 @@ export class ArcadeGame {
     }
     // play clock safety: force end after 14 seconds
     if (this.playElapsed > 14) {
-      this.finishLivePlay(c.y - this.losY, false, false);
+      audio.play('whistle');
+      this.freezeThen(0.4, () => this.finishLivePlay(c.y - this.losY, false, false));
     }
   }
 
@@ -1298,6 +1337,8 @@ export class ArcadeGame {
 
   private endPlay(kind: 'incomplete', _yards: number): void {
     void kind;
+    audio.play('whistle');
+    this.setBanner('INCOMPLETE', '');
     this.chargeClock(7);
     this.advanceDowns(0, true);
   }
@@ -1715,6 +1756,15 @@ export class ArcadeGame {
     this.bannerTimer = 0.55;
   }
 
+  /** Fixed button assignment per slot — gamepad-style letters and colors. */
+  static readonly RECV_ICONS: Record<EligibleSlot, { label: string; color: string }> = {
+    WR1: { label: 'X', color: '#3b82f6' },
+    WR2: { label: 'A', color: '#22c55e' },
+    WR3: { label: 'Y', color: '#eab308' },
+    TE: { label: 'B', color: '#ef4444' },
+    RB: { label: 'RB', color: '#8b93a8' },
+  };
+
   private receiverButtons(): HudState['receivers'] {
     if (this.phase !== 'live' || this.passThrown || this.play?.type !== 'pass' || this.carrier !== this.qbEnt) {
       return [];
@@ -1722,7 +1772,7 @@ export class ArcadeGame {
     const slots: EligibleSlot[] = ['WR1', 'WR2', 'WR3', 'TE', 'RB'];
     return slots
       .filter((s) => this.play?.routes?.[s])
-      .map((s, i) => ({ slot: s, label: `${i + 1}` }));
+      .map((s) => ({ slot: s, ...ArcadeGame.RECV_ICONS[s] }));
   }
 
   private pushHud(): void {

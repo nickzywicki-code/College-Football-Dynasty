@@ -887,21 +887,21 @@ h1.pixel,
 .recv-btns button {
   width: 58px;
   height: 58px;
-  border-radius: 10px;
+  border-radius: 50%;
   border: 3px solid var(--ink);
-  border-top-color: #ffe9a0;
-  border-left-color: #ffe9a0;
-  box-shadow: 0 5px 0 var(--ink);
+  box-shadow: 0 5px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.3);
   background: var(--gold);
-  color: #221800;
+  color: #0a0d16;
   font-family: 'PixelDisplay', monospace;
-  font-size: 0.6rem;
+  font-size: 0.85rem;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
   cursor: pointer;
 }
 
 .recv-btns button:active {
   transform: translateY(4px);
-  box-shadow: 0 1px 0 var(--ink);
+  box-shadow: 0 1px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.35);
 }
 
 .kickmeter {
