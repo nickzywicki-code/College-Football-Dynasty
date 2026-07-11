@@ -86,12 +86,22 @@ export function render(
     }
   }
 
-  // turf: two-tone mow stripes
-  ctx.fillStyle = '#1d8342';
-  ctx.fillRect(0, topY, canvasW, botY - topY);
-  for (let y = 0; y < FIELD_LEN; y += 10) {
-    ctx.fillStyle = '#23934c';
-    ctx.fillRect(sx(cam, y + 5), topY, 5 * s, botY - topY);
+  // turf: groomed 5-yard mow stripes (alternating shades) for a real pitch look
+  const fieldH = botY - topY;
+  ctx.fillStyle = '#1b7b3d';
+  ctx.fillRect(0, topY, canvasW, fieldH);
+  for (let y = 0; y < FIELD_LEN; y += 5) {
+    ctx.fillStyle = (Math.floor(y / 5) % 2 === 0) ? '#1b7b3d' : '#218a46';
+    ctx.fillRect(sx(cam, y), topY, 5 * s + 1, fieldH);
+  }
+  // groomed sheen: a faint lighter band across the middle third of the field
+  {
+    const sheen = ctx.createLinearGradient(0, topY, 0, botY);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.05)');
+    sheen.addColorStop(0.5, 'rgba(255,255,255,0.0)');
+    sheen.addColorStop(1, 'rgba(0,0,0,0.10)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(0, topY, canvasW, fieldH);
   }
 
   // end zones: left = user's own goal, right = the end zone being attacked
@@ -108,6 +118,27 @@ export function render(
     for (const pxx of [0, FIELD_W]) {
       ctx.fillRect(sx(cam, py) - 0.22 * s, sy(cam, pxx) - 0.22 * s, 0.44 * s, 0.44 * s);
     }
+  }
+
+  // goalposts at the back of each end zone (yellow uprights, top-down "H")
+  {
+    const cyc = (topY + botY) / 2;
+    const half = 3.0 * s; // upright spacing
+    ctx.strokeStyle = '#f2c500';
+    ctx.lineWidth = Math.max(2, 0.28 * s);
+    ctx.lineCap = 'round';
+    for (const [backY, dir] of [[0, -1], [120, 1]] as const) {
+      const gx = sx(cam, backY);
+      if (gx < -6 * s || gx > canvasW + 6 * s) continue;
+      // crossbar across the goal width
+      line(ctx, gx, cyc - half, gx, cyc + half);
+      // support post to the endline
+      line(ctx, gx, cyc, gx + dir * 1.6 * s, cyc);
+      // the two uprights rising off the crossbar
+      line(ctx, gx, cyc - half, gx - dir * 1.9 * s, cyc - half);
+      line(ctx, gx, cyc + half, gx - dir * 1.9 * s, cyc + half);
+    }
+    ctx.lineCap = 'butt';
   }
 
   // end zone lettering (vertical stack reads fine rotated 90)
@@ -214,35 +245,92 @@ export function render(
     line(ctx, sx(cam, fdY), topY, sx(cam, fdY), botY);
   }
 
-  // pre-snap route tree: read the play before you snap it
+  // pre-snap route tree: bold, glowing, animated lines so reads are obvious
   if (game.phase === 'presnap' && game.possession === 'user') {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+    const pulse = 0.7 + 0.3 * Math.sin(now * 4); // gentle breathing on the arrowheads
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     for (const e of game.ents) {
       if (e.side !== 'off' || e.route.length === 0) continue;
       const icon = (game.constructor as typeof ArcadeGame).RECV_ICONS[e.role as keyof typeof ArcadeGame.RECV_ICONS];
-      ctx.strokeStyle = icon ? icon.color : 'rgba(255,255,255,0.7)';
-      ctx.lineWidth = Math.max(2, 0.16 * s);
-      ctx.setLineDash([0.5 * s, 0.35 * s]);
-      ctx.beginPath();
-      ctx.moveTo(sx(cam, e.y), sy(cam, e.x));
-      for (const wp of e.route) {
-        ctx.lineTo(sx(cam, wp.y), sy(cam, wp.x));
-      }
-      ctx.stroke();
+      const col = icon ? icon.color : '#ffffff';
+      const pts = [{ x: e.x, y: e.y }, ...e.route];
+      const path = () => {
+        ctx.beginPath();
+        ctx.moveTo(sx(cam, pts[0].y), sy(cam, pts[0].x));
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(cam, pts[i].y), sy(cam, pts[i].x));
+      };
+
+      // 1) dark casing underneath for contrast against the turf
       ctx.setLineDash([]);
-      // arrowhead at the route's end
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = Math.max(6, 0.62 * s);
+      path();
+      ctx.stroke();
+
+      // 2) glowing colored route with dashes that flow toward the break
+      ctx.save();
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 0.7 * s;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(3, 0.34 * s);
+      ctx.setLineDash([1.0 * s, 0.55 * s]);
+      ctx.lineDashOffset = -now * 7 * s;
+      path();
+      ctx.stroke();
+      ctx.restore();
+      ctx.setLineDash([]);
+
+      // 3) breakpoint dots where the route changes direction
+      ctx.fillStyle = '#ffffff';
+      for (let i = 1; i < e.route.length; i++) {
+        const wp = e.route[i - 1];
+        ctx.beginPath();
+        ctx.arc(sx(cam, wp.y), sy(cam, wp.x), Math.max(2, 0.22 * s), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 4) chunky arrowhead at the route's end, breathing slightly
       const last = e.route[e.route.length - 1];
       const prev = e.route.length > 1 ? e.route[e.route.length - 2] : { x: e.x, y: e.y };
       const ax = sx(cam, last.y);
       const ay = sy(cam, last.x);
       const ang = Math.atan2(ay - sy(cam, prev.x), ax - sx(cam, prev.y));
-      ctx.fillStyle = icon ? icon.color : 'rgba(255,255,255,0.7)';
+      const ah = 1.15 * s * pulse;
+      ctx.save();
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 0.5 * s;
+      ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - Math.cos(ang - 0.5) * 0.8 * s, ay - Math.sin(ang - 0.5) * 0.8 * s);
-      ctx.lineTo(ax - Math.cos(ang + 0.5) * 0.8 * s, ay - Math.sin(ang + 0.5) * 0.8 * s);
+      ctx.moveTo(ax + Math.cos(ang) * 0.35 * s, ay + Math.sin(ang) * 0.35 * s);
+      ctx.lineTo(ax - Math.cos(ang - 0.6) * ah, ay - Math.sin(ang - 0.6) * ah);
+      ctx.lineTo(ax - Math.cos(ang + 0.6) * ah, ay - Math.sin(ang + 0.6) * ah);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
+
+      // 5) receiver label chip at the route end (matches the throw button)
+      if (icon) {
+        const lx = ax + Math.cos(ang) * 1.4 * s;
+        const ly = ay + Math.sin(ang) * 1.4 * s;
+        const r = Math.max(9, 0.85 * s);
+        ctx.fillStyle = col;
+        ctx.strokeStyle = 'rgba(6,8,14,0.9)';
+        ctx.lineWidth = Math.max(1.5, 0.12 * s);
+        ctx.beginPath();
+        ctx.arc(lx, ly, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#0a0d16';
+        ctx.font = `${icon.label.length > 1 ? r * 0.75 : r}px PixelDisplay, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon.label, lx, ly + r * 0.06);
+        ctx.textBaseline = 'alphabetic';
+      }
     }
+    ctx.lineCap = 'butt';
   }
 
   // players (sorted by screen Y so lower players overlap upper — painter's order)
@@ -340,6 +428,22 @@ export function render(
     ctx.fillRect(px2 - sz / 2, py2 - sz / 2, sz, sz);
   }
   ctx.globalAlpha = 1;
+
+  // vignette: darken the edges for a stadium-broadcast sense of depth
+  {
+    const vg = ctx.createRadialGradient(
+      canvasW / 2,
+      canvasH / 2,
+      Math.min(canvasW, canvasH) * 0.35,
+      canvasW / 2,
+      canvasH / 2,
+      Math.max(canvasW, canvasH) * 0.72,
+    );
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.34)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, canvasW, canvasH);
+  }
 
   ctx.restore(); // shake transform
 }

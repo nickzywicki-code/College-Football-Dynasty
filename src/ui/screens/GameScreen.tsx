@@ -153,24 +153,38 @@ export function GameScreen() {
         <canvas ref={canvasRef} />
 
         {hud && (
-          <div className="hud-top">
-            <span>
-              {hud.userAbbr} {hud.userScore}
-            </span>
-            <span className="clock">
-              Q{hud.quarter} {fmtClock(hud.clock)}
-              <br />
-              <span className="downdist">
-                {hud.phase === 'cpu' || hud.phase === 'defcall'
-                  ? `${hud.cpuAbbr} ball · ${nth(hud.down)} & ${hud.toGo}`
-                  : hud.userHasBall
-                    ? `${nth(hud.down)} & ${hud.toGo} · ${hud.yardsToGoal} to goal`
-                    : ''}
-              </span>
-            </span>
-            <span>
-              {hud.cpuAbbr} {hud.cpuScore}
-            </span>
+          <div className="scorebug">
+            <TeamPlate
+              abbr={hud.userAbbr}
+              score={hud.userScore}
+              colors={hud.userColors}
+              hasBall={hud.possession === 'user'}
+            />
+            <div className="sb-center">
+              <div className="sb-clock">
+                <span className="sb-q">{hud.quarterLabel}</span>
+                <span className="sb-time">{fmtClock(hud.clock)}</span>
+              </div>
+              <div className="sb-situation">
+                {hud.down >= 1 && hud.down <= 4 ? (
+                  <>
+                    <span className="sb-dd">
+                      {nth(hud.down)} &amp; {hud.toGo >= hud.yardsToGoal ? 'Goal' : hud.toGo}
+                    </span>
+                    <span className="sb-spot">{hud.ballOn}</span>
+                  </>
+                ) : (
+                  <span className="sb-dd">{hud.userAbbr} vs {hud.cpuAbbr}</span>
+                )}
+              </div>
+            </div>
+            <TeamPlate
+              abbr={hud.cpuAbbr}
+              score={hud.cpuScore}
+              colors={hud.cpuColors}
+              hasBall={hud.possession === 'cpu'}
+              right
+            />
           </div>
         )}
 
@@ -399,4 +413,28 @@ export function GameScreen() {
 
 function nth(n: number): string {
   return n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : '4th';
+}
+
+function TeamPlate({
+  abbr,
+  score,
+  colors,
+  hasBall,
+  right,
+}: {
+  abbr: string;
+  score: number;
+  colors: [string, string];
+  hasBall: boolean;
+  right?: boolean;
+}) {
+  return (
+    <div className={`sb-team${right ? ' right' : ''}`}>
+      <div className="sb-chip" style={{ background: colors[0], borderColor: colors[1] }}>
+        <span className="sb-abbr">{abbr}</span>
+        {hasBall && <span className="sb-ball" title="possession">🏈</span>}
+      </div>
+      <span className="sb-score">{score}</span>
+    </div>
+  );
 }

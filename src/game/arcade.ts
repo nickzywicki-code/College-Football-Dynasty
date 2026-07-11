@@ -107,6 +107,11 @@ export interface HudState {
   cpuScore: number;
   userAbbr: string;
   cpuAbbr: string;
+  userColors: [string, string];
+  cpuColors: [string, string];
+  possession: 'user' | 'cpu';
+  quarterLabel: string;
+  ballOn: string;
   userHasBall: boolean;
   banner: { big: string; small: string } | null;
   lastPlayText: string;
@@ -1787,6 +1792,11 @@ export class ArcadeGame {
       cpuScore: this.cpuStats.score,
       userAbbr: this.userTeam.abbr,
       cpuAbbr: this.cpuTeam.abbr,
+      userColors: [this.userTeam.colors[0], this.userTeam.colors[1]],
+      cpuColors: [this.cpuTeam.colors[0], this.cpuTeam.colors[1]],
+      possession: this.possession,
+      quarterLabel: ['1ST', '2ND', '3RD', '4TH'][Math.min(3, this.quarter - 1)],
+      ballOn: this.ballOnLabel(),
       userHasBall: this.possession === 'user',
       banner: this.banner,
       lastPlayText: this.lastPlayText,
@@ -1796,5 +1806,14 @@ export class ArcadeGame {
       gameOver: this.phase === 'gameover',
       finalMsg: this.gameOverMsg,
     });
+  }
+
+  /** Broadcast-style ball spot, e.g. "OPP 35", "OWN 22", or "50". */
+  private ballOnLabel(): string {
+    const ytg = Math.round(this.yardsToGoal);
+    if (ytg === 50) return '50';
+    const offAbbr = this.possession === 'user' ? this.userTeam.abbr : this.cpuTeam.abbr;
+    const defAbbr = this.possession === 'user' ? this.cpuTeam.abbr : this.userTeam.abbr;
+    return ytg < 50 ? `${defAbbr} ${ytg}` : `${offAbbr} ${100 - ytg}`;
   }
 }
