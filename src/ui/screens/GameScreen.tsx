@@ -67,8 +67,29 @@ export function GameScreen() {
 
     // joystick: any touch drag on the canvas steers the carrier
     let touchStart: { x: number; y: number } | null = null;
+    // tap on a floating receiver icon → throw to that receiver
+    const tryIconTap = (clientX: number, clientY: number): boolean => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = clientX - rect.left;
+      const cy = clientY - rect.top;
+      let best: { slot: (typeof engine.iconHits)[number]['slot']; d: number } | null = null;
+      for (const h of engine.iconHits) {
+        const d = Math.hypot(cx - h.x, cy - h.y);
+        if (d <= h.r && (!best || d < best.d)) best = { slot: h.slot, d };
+      }
+      if (best) {
+        engine.throwTo(best.slot);
+        return true;
+      }
+      return false;
+    };
     const onStart = (e: TouchEvent | MouseEvent) => {
       const pt = 'touches' in e ? e.touches[0] : e;
+      // a tap on a receiver icon throws immediately and does not start a drag
+      if (tryIconTap(pt.clientX, pt.clientY)) {
+        touchStart = null;
+        return;
+      }
       touchStart = { x: pt.clientX, y: pt.clientY };
     };
     const onMove = (e: TouchEvent | MouseEvent) => {
@@ -279,8 +300,13 @@ export function GameScreen() {
             {hud.receivers.length > 0 && (
               <div className="recv-btns">
                 {hud.receivers.map((r) => (
-                  <button key={r.slot} onClick={() => engine.throwTo(r.slot)}>
-                    {r.slot.startsWith('WR') ? r.slot.replace('WR', 'W') : r.slot}
+                  <button
+                    key={r.slot}
+                    className="gamepad-btn"
+                    style={{ background: r.color, borderColor: r.color }}
+                    onClick={() => engine.throwTo(r.slot)}
+                  >
+                    {r.label}
                   </button>
                 ))}
               </div>

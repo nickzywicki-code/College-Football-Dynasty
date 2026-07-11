@@ -32,6 +32,27 @@ export function updateCamera(cam: Camera, game: ArcadeGame, canvasW: number, can
 const sx = (cam: Camera, ey: number) => (ey - cam.l) * cam.scale;
 const sy = (cam: Camera, ex: number) => (ex - cam.w) * cam.scale;
 
+// pre-rendered crowd texture (random fan pixels on dark stands)
+let crowdTex: HTMLCanvasElement | null = null;
+function getCrowdTex(): HTMLCanvasElement {
+  if (crowdTex) return crowdTex;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 48;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#141625';
+  g.fillRect(0, 0, c.width, c.height);
+  const fanColors = ['#c94f4f', '#4f7dc9', '#c9b44f', '#5dbb63', '#c9c9c9', '#9b6fc9', '#e0955f'];
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = fanColors[(Math.random() * fanColors.length) | 0];
+    g.globalAlpha = 0.55 + Math.random() * 0.45;
+    g.fillRect((Math.random() * c.width) | 0, (Math.random() * c.height) | 0, 2, 2);
+  }
+  g.globalAlpha = 1;
+  crowdTex = c;
+  return c;
+}
+
 export function render(
   ctx: CanvasRenderingContext2D,
   game: ArcadeGame,
@@ -48,26 +69,46 @@ export function render(
     ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag);
   }
 
-  // out-of-view backdrop
-  ctx.fillStyle = '#0a1e10';
+  // stands + crowd beyond the sidelines
+  ctx.fillStyle = '#101221';
   ctx.fillRect(0, 0, canvasW, canvasH);
-
   const topY = sy(cam, 0);
   const botY = sy(cam, FIELD_W);
-  // turf
-  ctx.fillStyle = '#1f8a44';
+  const crowd = getCrowdTex();
+  if (topY > 0) {
+    for (let cxp = 0; cxp < canvasW; cxp += crowd.width) {
+      ctx.drawImage(crowd, cxp, Math.max(-crowd.height, topY - 3.4 * s), crowd.width, 3.2 * s);
+    }
+  }
+  if (botY < canvasH) {
+    for (let cxp = 0; cxp < canvasW; cxp += crowd.width) {
+      ctx.drawImage(crowd, cxp, botY + 0.2 * s, crowd.width, 3.2 * s);
+    }
+  }
+
+  // turf: two-tone mow stripes
+  ctx.fillStyle = '#1d8342';
   ctx.fillRect(0, topY, canvasW, botY - topY);
-  // mow stripes every 5 yards along the length
   for (let y = 0; y < FIELD_LEN; y += 10) {
-    ctx.fillStyle = 'rgba(0,0,0,0.09)';
+    ctx.fillStyle = '#23934c';
     ctx.fillRect(sx(cam, y + 5), topY, 5 * s, botY - topY);
   }
 
   // end zones: left = user's own goal, right = the end zone being attacked
-  ctx.fillStyle = hexWithAlpha(game.userTeam.colors[0], 0.6);
+  ctx.fillStyle = hexWithAlpha(game.userTeam.colors[0], 0.82);
   ctx.fillRect(sx(cam, 0), topY, 10 * s, botY - topY);
-  ctx.fillStyle = hexWithAlpha(game.cpuTeam.colors[0], 0.6);
+  ctx.fillStyle = hexWithAlpha(game.cpuTeam.colors[0], 0.82);
   ctx.fillRect(sx(cam, 110), topY, 10 * s, botY - topY);
+  // goal-line borders + corner pylons
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillRect(sx(cam, 10) - Math.max(1, 0.12 * s), topY, Math.max(2, 0.24 * s), botY - topY);
+  ctx.fillRect(sx(cam, 110) - Math.max(1, 0.12 * s), topY, Math.max(2, 0.24 * s), botY - topY);
+  ctx.fillStyle = '#ff7b00';
+  for (const py of [10, 110]) {
+    for (const pxx of [0, FIELD_W]) {
+      ctx.fillRect(sx(cam, py) - 0.22 * s, sy(cam, pxx) - 0.22 * s, 0.44 * s, 0.44 * s);
+    }
+  }
 
   // end zone lettering (vertical stack reads fine rotated 90)
   ctx.save();
@@ -105,14 +146,61 @@ export function render(
     line(ctx, x, topY, x, botY);
     if ((y - 10) % 10 === 0 && y > 10 && y < 110) {
       const num = y - 10 <= 50 ? y - 10 : 100 - (y - 10);
-      ctx.fillStyle = 'rgba(255,255,255,0.65)';
-      ctx.fillText(String(num), x, Math.min(botY - 1.2 * s, topY + 2.6 * s));
-      ctx.fillText(String(num), x, Math.max(topY + 1.2 * s, botY - 1.6 * s));
+      ctx.fillStyle = 'rgba(255,255,255,0.72)';
+      ctx.font = `${2.1 * s}px PixelDisplay, monospace`;
+      const yTop = sy(cam, 8);
+      const yBot = sy(cam, FIELD_W - 8);
+      ctx.fillText(String(num), x, yTop);
+      ctx.fillText(String(num), x, yBot);
+      // arrows point toward the nearer goal line
+      if (num !== 50) {
+        const dir = y - 10 < 50 ? -1 : 1;
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        for (const ay of [yTop - 0.8 * s, yBot - 0.8 * s]) {
+          ctx.beginPath();
+          ctx.moveTo(x + dir * 2.4 * s, ay);
+          ctx.lineTo(x + dir * 3.1 * s, ay + 0.35 * s);
+          ctx.lineTo(x + dir * 2.4 * s, ay + 0.7 * s);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      ctx.font = `${1.6 * s}px PixelDisplay, monospace`;
     }
     // hashes
     ctx.strokeStyle = 'rgba(255,255,255,0.4)';
     line(ctx, x, sy(cam, FIELD_W * 0.37), x, sy(cam, FIELD_W * 0.37 + 0.6));
     line(ctx, x, sy(cam, FIELD_W * 0.63 - 0.6), x, sy(cam, FIELD_W * 0.63));
+  }
+
+  // midfield logo: home team's painted circle at the 50
+  {
+    const homeTeam = game.userIsHome ? game.userTeam : game.cpuTeam;
+    const mx = sx(cam, 60);
+    const my = (topY + botY) / 2;
+    if (mx > -8 * s && mx < canvasW + 8 * s) {
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = homeTeam.colors[0];
+      ctx.beginPath();
+      ctx.arc(mx, my, 4.4 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, 0.35 * s);
+      ctx.strokeStyle = homeTeam.colors[1];
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = Math.max(1, 0.14 * s);
+      ctx.beginPath();
+      ctx.arc(mx, my, 3.6 * s, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${2.0 * s}px PixelDisplay, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(homeTeam.abbr, mx, my + 0.15 * s);
+      ctx.restore();
+      ctx.textBaseline = 'alphabetic';
+    }
   }
 
   // LOS + first-down markers
@@ -124,6 +212,37 @@ export function render(
     line(ctx, sx(cam, losY), topY, sx(cam, losY), botY);
     ctx.strokeStyle = 'rgba(255,207,64,0.95)';
     line(ctx, sx(cam, fdY), topY, sx(cam, fdY), botY);
+  }
+
+  // pre-snap route tree: read the play before you snap it
+  if (game.phase === 'presnap' && game.possession === 'user') {
+    for (const e of game.ents) {
+      if (e.side !== 'off' || e.route.length === 0) continue;
+      const icon = (game.constructor as typeof ArcadeGame).RECV_ICONS[e.role as keyof typeof ArcadeGame.RECV_ICONS];
+      ctx.strokeStyle = icon ? icon.color : 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = Math.max(2, 0.16 * s);
+      ctx.setLineDash([0.5 * s, 0.35 * s]);
+      ctx.beginPath();
+      ctx.moveTo(sx(cam, e.y), sy(cam, e.x));
+      for (const wp of e.route) {
+        ctx.lineTo(sx(cam, wp.y), sy(cam, wp.x));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // arrowhead at the route's end
+      const last = e.route[e.route.length - 1];
+      const prev = e.route.length > 1 ? e.route[e.route.length - 2] : { x: e.x, y: e.y };
+      const ax = sx(cam, last.y);
+      const ay = sy(cam, last.x);
+      const ang = Math.atan2(ay - sy(cam, prev.x), ax - sx(cam, prev.y));
+      ctx.fillStyle = icon ? icon.color : 'rgba(255,255,255,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - Math.cos(ang - 0.5) * 0.8 * s, ay - Math.sin(ang - 0.5) * 0.8 * s);
+      ctx.lineTo(ax - Math.cos(ang + 0.5) * 0.8 * s, ay - Math.sin(ang + 0.5) * 0.8 * s);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   // players (sorted by screen Y so lower players overlap upper — painter's order)
@@ -141,6 +260,42 @@ export function render(
       ctx.beginPath();
       ctx.ellipse(sx(cam, c.y), sy(cam, c.x) + 1.0 * s, 1.3 * s, 0.55 * s, 0, 0, Math.PI * 2);
       ctx.stroke();
+    }
+  }
+
+  // floating throw icons above eligible receivers (tap to throw)
+  game.iconHits = [];
+  if (
+    game.phase === 'live' &&
+    !game.passThrown &&
+    game.play?.type === 'pass' &&
+    game.carrier === game.qbEnt &&
+    game.possession === 'user'
+  ) {
+    const icons = (game.constructor as typeof ArcadeGame).RECV_ICONS;
+    for (const e of game.ents) {
+      if (e.side !== 'off' || !game.play.routes?.[e.role as keyof typeof game.play.routes]) continue;
+      const icon = icons[e.role as keyof typeof icons];
+      if (!icon) continue;
+      const ix = sx(cam, e.y);
+      const iy = sy(cam, e.x) - 2.6 * s;
+      const r = Math.max(13, 1.1 * s);
+      // button bubble
+      ctx.fillStyle = icon.color;
+      ctx.strokeStyle = 'rgba(6,8,14,0.9)';
+      ctx.lineWidth = Math.max(2, 0.14 * s);
+      ctx.beginPath();
+      ctx.arc(ix, iy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#0a0d16';
+      ctx.font = `${icon.label.length > 1 ? r * 0.7 : r * 0.95}px PixelDisplay, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(icon.label, ix, iy + r * 0.08);
+      ctx.textBaseline = 'alphabetic';
+      // generous tap target
+      game.iconHits.push({ slot: e.role as (typeof game.iconHits)[number]['slot'], x: ix, y: iy, r: Math.max(26, r * 1.7) });
     }
   }
 
