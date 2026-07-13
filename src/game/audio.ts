@@ -20,12 +20,13 @@ type SfxName =
   | 'turnover'
   | 'firstdown'
   | 'kick'
+  | 'block'
   | 'crowd';
 
 const LS_SOUND = 'gl-sound';
 const LS_MUSIC = 'gl-music';
 
-// Am – F – C – G, one chord per 8 sixteenths (half a bar), looping over 2 bars.
+// Am – F – C – G anthem: one chord per bar (16 sixteenths), 4-bar loop.
 // Each entry is [root, third, fifth] in Hz for a warm mid-register voicing.
 const CHORDS: number[][] = [
   [220.0, 261.63, 329.63], // Am
@@ -34,16 +35,24 @@ const CHORDS: number[][] = [
   [196.0, 246.94, 293.66], // G
 ];
 
-// 32-step (2-bar) melodic line in Hz; 0 = rest. Composed for this game.
+// 64-step (4-bar) singable melody in Hz; 0 = rest. An original sports anthem.
 const LEAD: number[] = [
-  0, 0, 659, 0, 587, 0, 523, 587, 659, 0, 0, 523, 440, 0, 494, 0,
-  523, 0, 587, 659, 784, 0, 659, 0, 587, 523, 494, 0, 440, 0, 0, 0,
+  // Am
+  0, 440, 0, 523, 659, 0, 587, 0, 523, 0, 440, 0, 494, 0, 0, 0,
+  // F
+  0, 349, 0, 440, 523, 0, 440, 0, 349, 0, 262, 0, 294, 0, 0, 0,
+  // C
+  0, 392, 0, 523, 659, 0, 784, 0, 659, 0, 523, 0, 587, 0, 0, 0,
+  // G  (resolve up)
+  0, 392, 0, 494, 587, 0, 494, 0, 392, 0, 294, 0, 330, 0, 330, 0,
 ];
 
-// Bass root per step, following the chord changes with octave motion.
+// Bass root per step with a walking octave lift into each new bar.
 const BASS: number[] = [
-  110, 110, 0, 110, 110, 0, 165, 0, 87, 87, 0, 87, 87, 0, 131, 0,
-  131, 131, 0, 131, 131, 0, 196, 0, 98, 98, 0, 98, 98, 0, 147, 147,
+  110, 0, 110, 0, 165, 0, 110, 0, 110, 0, 110, 0, 165, 0, 220, 0,
+  87, 0, 87, 0, 131, 0, 87, 0, 87, 0, 87, 0, 131, 0, 174, 0,
+  131, 0, 131, 0, 196, 0, 131, 0, 131, 0, 131, 0, 196, 0, 262, 0,
+  98, 0, 98, 0, 147, 0, 98, 0, 98, 0, 98, 0, 147, 0, 196, 0,
 ];
 
 class AudioEngine {
@@ -307,6 +316,11 @@ class AudioEngine {
         this.tone({ freq: 190, dur: 0.11, type: 'triangle', vol: 0.8, slideTo: 55 });
         this.noise({ dur: 0.12, vol: 0.4, lowpass: 2600, highpass: 400, attack: 0.03 });
         break;
+      case 'block':
+        // pad-pop: short low thud + mid click, lighter than a tackle
+        this.noise({ dur: 0.08, vol: 0.5, lowpass: 1500, highpass: 250 });
+        this.tone({ freq: 130, dur: 0.09, type: 'triangle', vol: 0.55, slideTo: 70 });
+        break;
       case 'crowd':
         this.crowdSwell(0.5, 1.4);
         break;
@@ -365,9 +379,9 @@ class AudioEngine {
     const bpm = this.intense ? 128 : 96;
     const stepDur = 60 / bpm / 4; // 16th notes
     while (this.nextNoteTime < ctx.currentTime + 0.3) {
-      const i = this.musicStep % 32;
+      const i = this.musicStep % 64;
       const t = this.nextNoteTime;
-      const chord = CHORDS[Math.floor(i / 8) % 4];
+      const chord = CHORDS[Math.floor(i / 16) % 4];
       const beat = i % 4 === 0;
 
       // --- lead (detuned square, reverb) ---
@@ -422,8 +436,8 @@ class AudioEngine {
       }
 
       // --- drums ---
-      // kick on every beat (and a syncopated push when intense)
-      if (beat || (this.intense && (i === 6 || i === 22))) {
+      // kick on every beat (and a syncopated "and" push when intense)
+      if (beat || (this.intense && i % 16 === 6)) {
         this.tone({
           freq: 150,
           dur: 0.14,
@@ -434,8 +448,8 @@ class AudioEngine {
           bus: this.musicGain,
         });
       }
-      // snare/backbeat on beats 2 & 4 of each bar
-      if (i === 4 || i === 12 || i === 20 || i === 28) {
+      // snare/backbeat on beats 2 & 4 of every bar
+      if (i % 8 === 4) {
         this.noise({
           dur: 0.16,
           when: t - ctx.currentTime,

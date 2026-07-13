@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import type { Player, Team } from '../engine/types';
 import { useStore } from '../store/store';
 import { getTeamLogo, LogoTeam } from '../game/logos';
-import { getSprite, skinFor, SPRITE_GRID, Pose } from '../game/sprites';
+import { getSprite, getHeadshot, skinFor, SPRITE_GRID, HEADSHOT_GRID, Pose } from '../game/sprites';
 
 export function ovrClass(o: number): string {
   if (o >= 88) return 'ovr elite';
@@ -39,6 +39,41 @@ export function TeamLogo({ team, size = 28 }: { team: LogoTeam; size?: number })
 
 export function TeamDot({ team, size = 28 }: { team: Team; size?: number }) {
   return <TeamLogo team={team} size={size} />;
+}
+
+/** An 8-bit Madden-style helmet headshot in the team's colors. */
+export function PlayerHeadshot({
+  player,
+  colors,
+  size = 72,
+}: {
+  player: Player;
+  colors: [string, string];
+  size?: number;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const px = Math.max(1, Math.round((size * dpr) / HEADSHOT_GRID.h));
+    const shot = getHeadshot({ primary: colors[0], secondary: colors[1], skin: skinFor(player.id) }, px);
+    const ox = Math.round((cv.width - shot.width) / 2);
+    const oy = Math.round((cv.height - shot.height) / 2);
+    ctx.drawImage(shot, ox, oy);
+  }, [player.id, colors, size, dpr]);
+  return (
+    <canvas
+      ref={ref}
+      width={Math.round(size * dpr)}
+      height={Math.round(size * dpr)}
+      style={{ width: size, height: size, imageRendering: 'pixelated', flexShrink: 0, borderRadius: 6 }}
+      aria-label="player headshot"
+    />
+  );
 }
 
 /** A pixel-art player model in the team's colors (idle pose by default). */
@@ -132,7 +167,7 @@ export function PlayerRow({
   return (
     <div className="list-item" onClick={onClick}>
       {avatarColors ? (
-        <PlayerModel player={p} colors={avatarColors} size={38} />
+        <PlayerHeadshot player={p} colors={avatarColors} size={40} />
       ) : (
         <span className="pos-badge">{p.pos}</span>
       )}

@@ -372,6 +372,101 @@ export function getSprite(scheme: SpriteScheme, pose: Pose, px: number): HTMLCan
   return canvas;
 }
 
+// --- front-facing helmet bust portrait (Madden-style headshot) -------------
+// 18x18 grid. Legend: H helmet, G stripe, F facemask, S skin, E eye,
+// D shoulder pad, A pad shadow, . transparent.
+const HEADSHOT = [
+  '.....HHHHHHHH.....',
+  '...HHHHHHHHHHHH...',
+  '..HHHHHHHHHHHHHH..',
+  '..HHHHHGGGGHHHHH..',
+  '..HHHHHHHHHHHHHH..',
+  '..HHSSSSSSSSSSHH..',
+  '..HHSSEESSEESSHH..',
+  '..HFFFFFFFFFFFFH..',
+  '..HHSSSSSSSSSSHH..',
+  '..HFFFFFFFFFFFFH..',
+  '..HHSSSSSSSSSSHH..',
+  '...HFFFFFFFFFFH...',
+  '....HSSSSSSSSH....',
+  '.....SSSSSSSS.....',
+  '...DDDDDDDDDDDD...',
+  '..DDDDDDDDDDDDDD..',
+  '..DDDAADDDDAADDD..',
+  '..DDDDDDDDDDDDDD..',
+];
+const HS_W = 18;
+const HS_H = 18;
+
+const hsCache = new Map<string, HTMLCanvasElement>();
+
+/**
+ * Render (and cache) a front-facing helmet bust portrait in the team's colors,
+ * framed on a subtle gradient card — an 8-bit "headshot" for menus.
+ */
+export function getHeadshot(scheme: SpriteScheme, px: number): HTMLCanvasElement {
+  const key = `${scheme.primary}|${scheme.secondary}|${scheme.skin}|${px}`;
+  const hit = hsCache.get(key);
+  if (hit) return hit;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = (HS_W + 2) * px;
+  canvas.height = (HS_H + 2) * px;
+  const ctx = canvas.getContext('2d')!;
+
+  // background card (team-tinted) so the portrait reads like a headshot
+  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bg.addColorStop(0, shade(scheme.secondary, -60).replace('rgb', 'rgba').replace(')', ',0.35)'));
+  bg.addColorStop(1, 'rgba(10,12,20,0.5)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const colors: Record<string, string> = {
+    H: scheme.primary,
+    G: scheme.secondary,
+    F: '#c9cedb',
+    S: scheme.skin,
+    E: '#20222f',
+    D: shade(scheme.primary, 22),
+    A: shade(scheme.primary, -34),
+  };
+  const rows = HEADSHOT;
+  const filled = (x: number, y: number): string | null => {
+    if (x < 0 || y < 0 || x >= HS_W || y >= HS_H) return null;
+    const c = rows[y]?.[x];
+    return c && c !== '.' ? c : null;
+  };
+  for (let y = -1; y <= HS_H; y++) {
+    for (let x = -1; x <= HS_W; x++) {
+      const c = filled(x, y);
+      const dx = (x + 1) * px;
+      const dy = (y + 1) * px;
+      if (!c) {
+        if (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1)) {
+          ctx.fillStyle = OUTLINE;
+          ctx.fillRect(dx, dy, px, px);
+        }
+        continue;
+      }
+      let color = colors[c] ?? '#fff';
+      const lit = !filled(x, y - 1);
+      const shadowed = !filled(x + 1, y) || !filled(x, y + 1);
+      if (lit && c !== 'F' && c !== 'E') color = color.startsWith('rgb(') ? shadeRgb(color, 28) : shade(color, 28);
+      else if (shadowed && c !== 'F' && c !== 'E') color = color.startsWith('rgb(') ? shadeRgb(color, -24) : shade(color, -24);
+      ctx.fillStyle = color;
+      ctx.fillRect(dx, dy, px, px);
+      if (c === 'H' && y <= 2) {
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.fillRect(dx, dy, px, Math.max(1, px / 3));
+      }
+    }
+  }
+  hsCache.set(key, canvas);
+  return canvas;
+}
+
+export const HEADSHOT_GRID = { w: HS_W + 2, h: HS_H + 2 };
+
 /** Pick the run-cycle pose from a speed-accumulated phase. */
 export function runPose(phase: number): Pose {
   const seq: Pose[] = ['run0', 'run1', 'run2', 'run3'];

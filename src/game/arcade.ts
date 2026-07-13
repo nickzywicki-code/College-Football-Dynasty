@@ -73,6 +73,9 @@ export interface Ent {
   zone: RoutePoint | null; // zone-drop landmark (absolute coords), null if man
   beatenT: number; // coverage: DB lost a rep, can't close for this long
   beatenIdx: number; // last route-break index this DB has already contested
+  contain: boolean; // edge rusher keeping outside leverage on the QB
+  spy: boolean; // QB spy: mirrors the QB, jumps a scramble
+  readDelay: number; // second-level defender reads for a beat before filling
 }
 
 export interface Particle {
@@ -210,6 +213,10 @@ export class ArcadeGame {
   losY = 0; // absolute y of line of scrimmage during live play
   firstDownY = 0;
   scrambling = false;
+  lastBlockSfx = -1; // throttle for pad-pop block SFX
+  coverPress = false; // tighter coverage when the user spams one play
+  /** recent user play outcomes, for defensive adjustments to repetition */
+  recentPlays: { id: string; type: 'run' | 'pass'; scramble: boolean; inside: boolean }[] = [];
 
   banner: HudState['banner'] = null;
   bannerTimer = 0;
@@ -564,27 +571,48 @@ export class ArcadeGame {
       x: clamp(FIELD_W / 2 + rel.x, 2, FIELD_W - 2),
       y: this.losY + rel.y,
     });
+    // read the last few user plays and ADJUST to repetition
+    const recent = this.recentPlays.slice(-3);
+    const scrambleHeat = recent.filter((p) => p.scramble).length;
+    const insideHeat = recent.filter((p) => p.type === 'run' && p.inside).length;
+    const sameCall = recent.length >= 2 && recent.every((p) => p.id === recent[0].id);
+    this.coverPress = sameCall; // DBs jump routes when you keep dialing it up
     for (const e of this.ents) {
       if (e.side !== 'def') continue;
       e.rusher = false;
       e.wonBlock = false;
       e.assignRole = null;
       e.zone = null;
+      e.contain = false;
+      e.spy = false;
+      e.readDelay = 0;
       if (e.role.startsWith('DL')) {
         e.rusher = true; // four down linemen always rush
+        // ends keep contain so the QB can't just bounce outside and take off
+        if (e.role === 'DL0' || e.role === 'DL3') e.contain = true;
         continue;
       }
       if (e.role.startsWith('LB')) {
         const i = Number(e.role[2]);
+        // LBs read the play for a beat before flowing (opens inside lanes
+        // long enough for the back to hit the hole); if the user keeps
+        // pounding it inside, they trigger downhill faster
+        e.readDelay = clamp(0.75 - insideHeat * 0.18 - (e.player.attrs.awr / 99) * 0.15, 0.1, 0.75);
         if (this.defCall === 'blitz' && (i === 1 || i === 0)) {
           e.rusher = true; // blitz sends two linebackers
         } else if (this.defCall === 'coverage') {
-          // drop into hook/curl zones
           e.zone = zoneLandmark({ x: (i - 1) * 9, y: 8 });
+          if (i === 1) e.spy = true; // middle dropper doubles as a QB spy
         } else {
-          // balanced: LB0 spies RB, LB2 covers TE, LB1 hooks middle
+          // balanced: LB0 spies RB, LB2 covers TE, LB1 spies the QB
           e.assignRole = i === 0 ? 'RB' : i === 2 ? 'TE' : null;
-          if (!e.assignRole) e.zone = zoneLandmark({ x: 0, y: 7 });
+          if (i === 1) e.spy = true;
+          else if (!e.assignRole) e.zone = zoneLandmark({ x: 0, y: 7 });
+        }
+        // if the user has been scrambling, add a second spy to wall the QB
+        if (scrambleHeat >= 2 && i === 0 && this.defCall !== 'blitz') {
+          e.spy = true;
+          e.assignRole = null;
         }
         continue;
       }
@@ -646,6 +674,7 @@ export class ArcadeGame {
         body: null, lungeT: 0, celebT: 0, animPhase: 0, diveCd: 0, diving: false,
         rusher: false, wonBlock: false, beatBy: null, beatT: 0,
         assignRole: null, zone: null, beatenT: 0, beatenIdx: -1,
+        contain: false, spy: false, readDelay: 0,
       });
     };
     const addOff = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'off', role, rel);
@@ -1008,9 +1037,9 @@ export class ArcadeGame {
       const al = Math.hypot(awayX, awayY) || 1;
       // block leverage: blk vs str decides how hard the blocker drives.
       // On runs a winning OL genuinely displaces the DL to open a lane.
-      const edge = (e.player.attrs.blk - d.player.attrs.str) * (isRun ? 0.014 : 0.009);
-      const drivePow = (isRun ? 0.7 : 0.5) + edge;
-      const push = isRun ? 1.3 : 0.8;
+      const edge = (e.player.attrs.blk - d.player.attrs.str) * (isRun ? 0.016 : 0.009);
+      const drivePow = (isRun ? 0.9 : 0.5) + edge;
+      const push = isRun ? 1.8 : 0.8;
       this.moveToward(e, d.x + (awayX / al) * push, d.y + (awayY / al) * push, dt, clamp(drivePow, 0.2, 1.05));
       if (e.engageTimer <= 0 && this.phys && d.body) {
         // rusher WINS the rep: sheds with a burst to the ball and the blocker
@@ -1057,8 +1086,14 @@ export class ArcadeGame {
       );
       e.engagedWith = nearest;
       nearest.engagedWith = e;
-      e.engageTimer = hold;
+      // run blocks sustain longer so a crease actually opens
+      e.engageTimer = isRun ? hold + 0.6 : hold;
       this.spawnDust((e.x + nearest.x) / 2, (e.y + nearest.y) / 2, 3);
+      // pad-pop on the initial hit, throttled so the line isn't a machine gun
+      if (this.playElapsed - this.lastBlockSfx > 0.11) {
+        this.lastBlockSfx = this.playElapsed;
+        audio.play('block');
+      }
     } else if (nearest) {
       // slide to wall off the threat (mirror between him and the QB)
       const mx = (nearest.x + protectee.x) / 2;
@@ -1087,18 +1122,41 @@ export class ArcadeGame {
           e.engagedWith = null;
           continue;
         }
-        // in the blocker's grasp: bull-rush toward the ball, leverage from str
-        const bull = 0.18 + Math.max(0, e.player.attrs.str - e.engagedWith.player.attrs.blk) * 0.004;
-        this.moveToward(e, t.x, t.y, dt, clamp(bull, 0.1, 0.5));
+        // in the blocker's grasp: bull-rush toward the ball, leverage from str.
+        // On runs an engaged lineman gets walled and barely penetrates, so the
+        // hole stays open — he only wins if he badly out-strengths the blocker.
+        const isRunNow = this.play?.type === 'run';
+        const bull = 0.14 + Math.max(0, e.player.attrs.str - e.engagedWith.player.attrs.blk) * 0.004;
+        this.moveToward(e, t.x, t.y, dt, clamp(bull, isRunNow ? 0.06 : 0.1, isRunNow ? 0.32 : 0.5));
         if (e.engagedWith.engagedWith !== e || e.engagedWith.engageTimer <= 0) e.engagedWith = null;
         continue;
       }
 
       const carrier = this.carrier;
       const ballLive = !this.ball.inFlight;
+      if (e.readDelay > 0) e.readDelay -= dt;
+
+      // QB SPY: shadow the QB and blow up the easy scramble. Releases to
+      // normal pursuit the moment the ball goes to someone else.
+      if (e.spy && this.qbEnt && (!carrier || carrier === this.qbEnt)) {
+        const qb = this.qbEnt;
+        if (this.scrambling || qb.y > this.losY - 0.3) {
+          this.moveToward(e, qb.x + qb.vx * 0.12, qb.y + qb.vy * 0.12, dt, 1.0); // trigger downhill
+        } else {
+          // sit just in front of the QB, mirroring his lateral moves
+          this.moveToward(e, qb.x, Math.min(this.losY + 1.5, qb.y + 3), dt, 0.85);
+        }
+        continue;
+      }
 
       // ball carrier pursuit dominates everything once ball is committed
       if (carrier && (carrier !== this.qbEnt || this.scrambling || play.type === 'run')) {
+        // second-level defenders read for a beat before flowing — this is what
+        // opens an inside running lane instead of instant gang-tackles
+        if (e.readDelay > 0 && e.role.startsWith('LB') && !this.scrambling) {
+          this.moveToward(e, e.x, this.losY + 4.5, dt, 0.45);
+          continue;
+        }
         const dist = Math.hypot(carrier.x - e.x, carrier.y - e.y);
         const mySpeed = speedOf(e.player);
         if (dist > 3) {
@@ -1128,7 +1186,15 @@ export class ArcadeGame {
       // RUSHERS: designated pass rush (or beat their blocker). Once a rusher
       // has a free lane, drive hard for the QB — this is how sacks happen.
       if (e.rusher || e.wonBlock) {
-        const t = this.carrier ?? this.qbEnt!;
+        const qb = this.qbEnt!;
+        // edge contain: squeeze from outside so the QB can't bounce and bolt
+        if (e.contain && this.carrier === qb && !this.scrambling && qb.y <= this.losY + 0.5) {
+          const side = e.role === 'DL0' ? -1 : 1;
+          const tx = clamp(qb.x + side * 2.6, 1.5, FIELD_W - 1.5);
+          this.moveToward(e, tx, qb.y + 0.2, dt, 0.9);
+          continue;
+        }
+        const t = this.carrier ?? qb;
         const mult = e.wonBlock ? 1.02 : 0.95;
         this.moveToward(e, t.x + t.vx * 0.1, t.y + t.vy * 0.1, dt, mult);
         continue;
@@ -1184,7 +1250,7 @@ export class ArcadeGame {
     }
     // anticipate: good cover keys the receiver's lead; a beaten DB flat-foots
     const lead = e.beatenT > 0 ? -0.3 : covSkill * 0.35;
-    const cushion = (1 - covSkill) * 1.1 * cushionMul;
+    const cushion = (1 - covSkill) * 1.1 * cushionMul * (this.coverPress ? 0.5 : 1);
     const tx = target.x + target.vx * lead;
     const ty = target.y + target.vy * lead - cushion;
     const speedMul = e.beatenT > 0 ? 0.72 : 1.0;
@@ -1426,6 +1492,14 @@ export class ArcadeGame {
     const play = this.play!;
     const yards = Math.round(clamp(gained, -15, this.yardsToGoal));
     const qb = this.qbEnt!.player;
+
+    // remember what the user just did so the defense can adjust to repetition
+    if (this.possession === 'user') {
+      const scramble = c === this.qbEnt && play.type === 'pass' && !this.passThrown;
+      const inside = play.type === 'run' && Math.abs(play.runPoint?.x ?? 99) <= 3.5;
+      this.recentPlays.push({ id: play.id, type: play.type, scramble, inside });
+      if (this.recentPlays.length > 6) this.recentPlays.shift();
+    }
 
     if (c) {
       if (c === this.qbEnt && play.type === 'pass' && !this.passThrown) {
