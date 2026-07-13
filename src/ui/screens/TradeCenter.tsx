@@ -53,11 +53,29 @@ export function TradeCenter() {
     const parts = [
       ...playerIds.map((id) => {
         const p = league.players[id];
-        return p ? `${p.pos} ${p.lastName} (${p.overall})` : '';
+        return p ? `${p.pos} ${p.lastName} (${p.overall} OVR · ${p.age}y)` : '';
       }),
       ...picks.map((pk) => `${league.teams[pk.originalTeamId].abbr} S${pk.season} R${pk.round}`),
     ].filter(Boolean);
-    return parts.length ? parts.join(' + ') : '—';
+    return parts.length ? parts.join('  +  ') : '—';
+  };
+
+  const contractLabel = (id: number): string => {
+    const p = league.players[id];
+    if (!p) return '';
+    return p.contract ? `$${p.contract.salary}M × ${p.contract.yearsLeft}yr` : 'No contract';
+  };
+
+  // detail chips (age · contract · OVR) for a single headline player
+  const PlayerFacts = ({ id }: { id: number }) => {
+    const p = league.players[id];
+    if (!p) return null;
+    return (
+      <div style={{ fontSize: '0.72rem', color: 'var(--dim)', marginBottom: 8 }}>
+        {p.age}y · {contractLabel(id)} · {p.overall} OVR
+        {p.injuryWeeks > 0 && <span style={{ color: 'var(--danger)' }}> · ✚{p.injuryWeeks}w</span>}
+      </div>
+    );
   };
 
   const executeFinder = (ft: FoundTrade) => {
@@ -195,6 +213,7 @@ export function TradeCenter() {
                       ))}
                     </select>
                   </div>
+                  {shopId >= 0 && <PlayerFacts id={shopId} />}
                   <p style={{ fontSize: '0.78rem', color: 'var(--dim)', margin: 0 }}>
                     Best offers other teams would accept, ranked by what you get back.
                   </p>
@@ -264,6 +283,7 @@ export function TradeCenter() {
                           Land {league.players[acqId].pos} {league.players[acqId].lastName}
                         </b>
                       </div>
+                      <PlayerFacts id={acqId} />
                       <div style={{ fontSize: '0.82rem', marginBottom: 4 }}>
                         <span style={{ color: 'var(--danger)' }}>It costs you:</span>{' '}
                         {describe(acqResult.offer.playersOut, acqResult.offer.picksOut)}
@@ -382,7 +402,7 @@ export function TradeCenter() {
                       {p.firstName} {p.lastName}
                     </div>
                     <div className="meta">
-                      {p.overall} OVR · {p.age}y · value {playerTradeValue(p)}
+                      {p.overall} OVR · {p.age}y · {p.contract ? `$${p.contract.salary}M×${p.contract.yearsLeft}yr` : 'No deal'} · val {playerTradeValue(p)}
                     </div>
                   </div>
                 </div>
