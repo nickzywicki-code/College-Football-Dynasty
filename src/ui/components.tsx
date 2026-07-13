@@ -1,8 +1,10 @@
 // Shared UI building blocks.
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { Player, Team } from '../engine/types';
 import { useStore } from '../store/store';
+import { getTeamLogo, LogoTeam } from '../game/logos';
+import { getSprite, skinFor, SPRITE_GRID, Pose } from '../game/sprites';
 
 export function ovrClass(o: number): string {
   if (o >= 88) return 'ovr elite';
@@ -12,20 +14,72 @@ export function ovrClass(o: number): string {
   return 'ovr bad';
 }
 
-export function TeamDot({ team, size }: { team: Team; size?: number }) {
+export function TeamLogo({ team, size = 28 }: { team: LogoTeam; size?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const logo = getTeamLogo(team, Math.round(size * dpr));
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(logo, 0, 0, cv.width, cv.height);
+  }, [team, size, dpr]);
   return (
-    <div
-      className="teamdot"
-      style={{
-        background: team.colors[0],
-        color: '#fff',
-        width: size,
-        height: size,
-        fontSize: size ? size * 0.28 : undefined,
-      }}
-    >
-      {team.abbr}
-    </div>
+    <canvas
+      ref={ref}
+      width={Math.round(size * dpr)}
+      height={Math.round(size * dpr)}
+      style={{ width: size, height: size, imageRendering: 'pixelated', flexShrink: 0 }}
+      aria-label={`${team.abbr} logo`}
+    />
+  );
+}
+
+export function TeamDot({ team, size = 28 }: { team: Team; size?: number }) {
+  return <TeamLogo team={team} size={size} />;
+}
+
+/** A pixel-art player model in the team's colors (idle pose by default). */
+export function PlayerModel({
+  player,
+  colors,
+  size = 72,
+  pose = 'idle',
+}: {
+  player: Player;
+  colors: [string, string];
+  size?: number;
+  pose?: Pose;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const px = Math.max(1, Math.round((size * dpr) / SPRITE_GRID.h));
+    const sprite = getSprite(
+      { primary: colors[0], secondary: colors[1], skin: skinFor(player.id) },
+      pose,
+      px,
+    );
+    // center the sprite in the square canvas
+    const ox = Math.round((cv.width - sprite.width) / 2);
+    const oy = Math.round((cv.height - sprite.height) / 2);
+    ctx.drawImage(sprite, ox, oy);
+  }, [player.id, colors, size, pose, dpr]);
+  return (
+    <canvas
+      ref={ref}
+      width={Math.round(size * dpr)}
+      height={Math.round(size * dpr)}
+      style={{ width: size, height: size, imageRendering: 'pixelated', flexShrink: 0 }}
+      aria-label="player model"
+    />
   );
 }
 
@@ -68,14 +122,20 @@ export function PlayerRow({
   p,
   right,
   onClick,
+  avatarColors,
 }: {
   p: Player;
   right?: React.ReactNode;
   onClick?: () => void;
+  avatarColors?: [string, string];
 }) {
   return (
     <div className="list-item" onClick={onClick}>
-      <span className="pos-badge">{p.pos}</span>
+      {avatarColors ? (
+        <PlayerModel player={p} colors={avatarColors} size={38} />
+      ) : (
+        <span className="pos-badge">{p.pos}</span>
+      )}
       <div className="grow">
         <div className="name">
           {p.firstName} {p.lastName}
