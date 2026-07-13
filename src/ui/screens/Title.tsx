@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { TEAM_IDENTITIES } from '../../engine/names';
 import { useStore } from '../../store/store';
 import { deleteSave, listSaves, loadLeague, SaveMeta } from '../../store/db';
+import { TeamLogo } from '../components';
 
 export function Title() {
   const newLeague = useStore((s) => s.newLeague);
@@ -34,9 +35,7 @@ export function Title() {
               className={teamIdx === i ? 'selected' : ''}
               onClick={() => setTeamIdx(i)}
             >
-              <div className="teamdot" style={{ background: t.colors[0], color: '#fff' }}>
-                {t.abbr}
-              </div>
+              <TeamLogo team={t} size={40} />
               <span>
                 {t.city}
                 <br />

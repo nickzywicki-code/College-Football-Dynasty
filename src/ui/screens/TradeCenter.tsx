@@ -5,6 +5,7 @@ import { useLeague, useStore } from '../../store/store';
 import { Seg, TeamDot, TopBar } from '../components';
 import type { DraftPickAsset, TradeOffer } from '../../engine/types';
 import { evaluateTrade, executeTrade, playerTradeValue, pickTradeValue } from '../../engine/franchise/trades';
+import { findReturnsForPlayer, packageToAcquire, FoundTrade } from '../../engine/franchise/tradeFinder';
 
 function pickLabel(league: ReturnType<typeof useLeague>, pk: DraftPickAsset): string {
   return `S${pk.season} R${pk.round} (${league.teams[pk.originalTeamId].abbr})`;
@@ -22,10 +23,50 @@ export function TradeCenter() {
   const [getPicks, setGetPicks] = useState<Set<string>>(new Set());
   const [verdict, setVerdict] = useState<string | null>(null);
   const [tab, setTab] = useState<'give' | 'get'>('give');
+  const [view, setView] = useState<'builder' | 'finder'>('builder');
 
   const me = league.teams[league.userTeamId];
   const partner = league.teams[partnerId];
   const canTrade = league.phase === 'regularSeason' || league.phase === 'draft' || league.phase === 'freeAgency';
+
+  // ---- trade finder state ----
+  const myPlayersByOvr = useMemo(
+    () => me.playerIds.map((id) => league.players[id]).filter(Boolean).sort((a, b) => b.overall - a.overall),
+    [me, league],
+  );
+  const [finderMode, setFinderMode] = useState<'shop' | 'acquire'>('shop');
+  const [shopId, setShopId] = useState<number>(myPlayersByOvr[0]?.id ?? -1);
+  const [acqPartnerId, setAcqPartnerId] = useState<number>(league.userTeamId === 0 ? 1 : 0);
+  const [acqId, setAcqId] = useState<number>(-1);
+  const [finderMsg, setFinderMsg] = useState<string | null>(null);
+
+  const shopResults = useMemo<FoundTrade[]>(
+    () => (view === 'finder' && finderMode === 'shop' && shopId >= 0 ? findReturnsForPlayer(league, me.id, shopId) : []),
+    [view, finderMode, shopId, league, me.id],
+  );
+  const acqResult = useMemo<FoundTrade | null>(
+    () => (view === 'finder' && finderMode === 'acquire' && acqId >= 0 ? packageToAcquire(league, me.id, acqId) : null),
+    [view, finderMode, acqId, league, me.id],
+  );
+
+  const describe = (playerIds: number[], picks: DraftPickAsset[]): string => {
+    const parts = [
+      ...playerIds.map((id) => {
+        const p = league.players[id];
+        return p ? `${p.pos} ${p.lastName} (${p.overall})` : '';
+      }),
+      ...picks.map((pk) => `${league.teams[pk.originalTeamId].abbr} S${pk.season} R${pk.round}`),
+    ].filter(Boolean);
+    return parts.length ? parts.join(' + ') : '—';
+  };
+
+  const executeFinder = (ft: FoundTrade) => {
+    executeTrade(league, ft.offer);
+    touch();
+    persist();
+    setFinderMsg('🤝 Trade executed! Check your roster.');
+    setAcqId(-1);
+  };
 
   const pkKey = (pk: DraftPickAsset) => `${pk.season}-${pk.round}-${pk.originalTeamId}`;
 
@@ -112,6 +153,143 @@ export function TradeCenter() {
             </p>
           </div>
         )}
+
+        <Seg<'builder' | 'finder'>
+          options={[
+            { key: 'builder', label: '🛠 Builder' },
+            { key: 'finder', label: '🔎 Trade Finder' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+
+        {view === 'finder' && (
+          <>
+            <Seg<'shop' | 'acquire'>
+              options={[
+                { key: 'shop', label: 'Shop My Player' },
+                { key: 'acquire', label: 'Acquire a Player' },
+              ]}
+              value={finderMode}
+              onChange={(v) => {
+                setFinderMode(v);
+                setFinderMsg(null);
+              }}
+            />
+            {finderMsg && (
+              <div className="card">
+                <p style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0 }}>{finderMsg}</p>
+              </div>
+            )}
+
+            {finderMode === 'shop' && (
+              <>
+                <div className="card">
+                  <h2>Player to Shop</h2>
+                  <div className="field">
+                    <select value={shopId} onChange={(e) => { setShopId(Number(e.target.value)); setFinderMsg(null); }}>
+                      {myPlayersByOvr.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.pos} {p.firstName} {p.lastName} — {p.overall} OVR
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--dim)', margin: 0 }}>
+                    Best offers other teams would accept, ranked by what you get back.
+                  </p>
+                </div>
+                {!canTrade ? null : shopResults.length === 0 ? (
+                  <div className="card">
+                    <p className="empty">No team is biting on this player right now. Try a more valuable player.</p>
+                  </div>
+                ) : (
+                  shopResults.map((ft) => {
+                    const partnerT = league.teams[ft.offer.toTeamId];
+                    return (
+                      <div className="card" key={partnerT.id}>
+                        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+                          <TeamDot team={partnerT} size={30} />
+                          <b style={{ fontSize: '0.9rem' }}>{partnerT.city} {partnerT.name}</b>
+                        </div>
+                        <div style={{ fontSize: '0.82rem', marginBottom: 4 }}>
+                          <span style={{ color: 'var(--accent)' }}>You get:</span>{' '}
+                          {describe(ft.offer.playersIn, ft.offer.picksIn)}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--dim)', marginBottom: 10 }}>
+                          Return value {ft.returnValue} · you give up {ft.costValue}
+                        </div>
+                        <button className="btn small" disabled={!canTrade} onClick={() => executeFinder(ft)}>
+                          Accept & Execute
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </>
+            )}
+
+            {finderMode === 'acquire' && (
+              <>
+                <div className="card">
+                  <h2>Target a Player</h2>
+                  <div className="field">
+                    <select value={acqPartnerId} onChange={(e) => { setAcqPartnerId(Number(e.target.value)); setAcqId(-1); setFinderMsg(null); }}>
+                      {league.teams.filter((t) => t.id !== me.id).map((t) => (
+                        <option key={t.id} value={t.id}>{t.city} {t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <select value={acqId} onChange={(e) => { setAcqId(Number(e.target.value)); setFinderMsg(null); }}>
+                      <option value={-1}>Select a player…</option>
+                      {league.teams[acqPartnerId].playerIds
+                        .map((id) => league.players[id])
+                        .filter(Boolean)
+                        .sort((a, b) => b.overall - a.overall)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.pos} {p.firstName} {p.lastName} — {p.overall} OVR
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                {acqId >= 0 && (
+                  acqResult ? (
+                    <div className="card">
+                      <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+                        <TeamDot team={me} size={30} />
+                        <b style={{ fontSize: '0.9rem' }}>
+                          Land {league.players[acqId].pos} {league.players[acqId].lastName}
+                        </b>
+                      </div>
+                      <div style={{ fontSize: '0.82rem', marginBottom: 4 }}>
+                        <span style={{ color: 'var(--danger)' }}>It costs you:</span>{' '}
+                        {describe(acqResult.offer.playersOut, acqResult.offer.picksOut)}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--dim)', marginBottom: 10 }}>
+                        You give {acqResult.costValue} for {acqResult.returnValue} value
+                      </div>
+                      <button className="btn small" disabled={!canTrade} onClick={() => executeFinder(acqResult)}>
+                        Propose &amp; Execute
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="card">
+                      <p className="empty">
+                        Your roster and picks aren't enough to land this player. Build up assets first.
+                      </p>
+                    </div>
+                  )
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {view === 'builder' && (
+        <>
         <div className="card">
           <h2>Trade Partner</h2>
           <div className="field">
@@ -211,6 +389,8 @@ export function TradeCenter() {
               );
             })}
         </div>
+        </>
+        )}
       </div>
     </>
   );

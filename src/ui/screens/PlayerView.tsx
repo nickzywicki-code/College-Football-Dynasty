@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useLeague, useStore } from '../../store/store';
-import { Modal, RatingBar, TopBar, ovrClass } from '../components';
+import { Modal, PlayerModel, RatingBar, TopBar, ovrClass } from '../components';
 import type { AttrKey, Player, SeasonStats } from '../../engine/types';
 import { releasePlayer, askingPrice, offerAccepted, signPlayer, capRoom } from '../../engine/franchise/contracts';
 import { runtimeRng } from '../../store/store';
@@ -117,6 +117,11 @@ export function PlayerView() {
       <div className="screen">
         <div className="card">
           <div className="row">
+            <PlayerModel
+              player={p}
+              colors={team ? team.colors : ['#3a3f5a', '#8b93a8']}
+              size={76}
+            />
             <span className={ovrClass(p.overall)} style={{ fontSize: '1.3rem', minWidth: 48, padding: '8px 0' }}>
               {p.overall}
             </span>

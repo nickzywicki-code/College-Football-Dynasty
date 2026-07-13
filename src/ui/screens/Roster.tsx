@@ -60,6 +60,7 @@ export function Roster() {
                   <PlayerRow
                     key={id}
                     p={p}
+                    avatarColors={team.colors}
                     onClick={() => navigate('player', { playerId: id })}
                     right={
                       <span className="row" style={{ gap: 6 }}>
