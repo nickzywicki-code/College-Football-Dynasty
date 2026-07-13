@@ -64,6 +64,15 @@ export interface Ent {
   animPhase: number; // run-cycle phase, advanced by actual speed
   diveCd: number; // cooldown between tackle-dive attempts
   diving: boolean; // mid-dive: widened tackle radius, whiff = eat turf
+  // --- pass rush / coverage bookkeeping ---
+  rusher: boolean; // this defender is rushing the passer on this snap
+  wonBlock: boolean; // rusher has beaten his blocker and has a free lane
+  beatBy: Ent | null; // blocker was beaten by this rusher — can't re-grab yet
+  beatT: number; // cooldown before a beaten blocker may re-engage
+  assignRole: string | null; // man-coverage assignment (offense role) or null for zone
+  zone: RoutePoint | null; // zone-drop landmark (absolute coords), null if man
+  beatenT: number; // coverage: DB lost a rep, can't close for this long
+  beatenIdx: number; // last route-break index this DB has already contested
 }
 
 export interface Particle {
@@ -521,9 +530,81 @@ export class ArcadeGame {
   callPlay(play: OffensivePlay): void {
     if (this.phase !== 'playcall') return;
     this.play = play;
+    // CPU defense picks a shell, biased by down & distance
+    this.defCall = this.pickCpuDefense();
     this.setupFormation(play);
+    this.assignDefense();
     this.phase = 'presnap';
     this.pushHud();
+  }
+
+  /** The CPU defensive coordinator's call vs the user offense. */
+  private pickCpuDefense(): DefCall {
+    const longYardage = this.toGo >= 8;
+    const shortYardage = this.toGo <= 3;
+    // weights: [balanced, blitz, coverage]
+    let w: [number, number, number] = [0.5, 0.25, 0.25];
+    if (this.down >= 3 && longYardage) w = [0.28, 0.32, 0.4]; // expect pass
+    else if (this.down >= 3 && shortYardage) w = [0.4, 0.45, 0.15]; // sell out vs the sticks
+    else if (shortYardage) w = [0.5, 0.35, 0.15];
+    const roll = this.r.range(0, w[0] + w[1] + w[2]);
+    if (roll < w[0]) return 'balanced';
+    if (roll < w[0] + w[1]) return 'blitz';
+    return 'coverage';
+  }
+
+  /**
+   * Assign every defender a job for this snap based on the called shell:
+   * who rushes, who plays man, who drops to a zone. Ratings then decide
+   * whether they win their reps.
+   */
+  private assignDefense(): void {
+    const man: Record<string, string> = { CB0: 'WR1', CB1: 'WR2', S0: 'WR3', S1: 'TE' };
+    const zoneLandmark = (rel: RoutePoint): RoutePoint => ({
+      x: clamp(FIELD_W / 2 + rel.x, 2, FIELD_W - 2),
+      y: this.losY + rel.y,
+    });
+    for (const e of this.ents) {
+      if (e.side !== 'def') continue;
+      e.rusher = false;
+      e.wonBlock = false;
+      e.assignRole = null;
+      e.zone = null;
+      if (e.role.startsWith('DL')) {
+        e.rusher = true; // four down linemen always rush
+        continue;
+      }
+      if (e.role.startsWith('LB')) {
+        const i = Number(e.role[2]);
+        if (this.defCall === 'blitz' && (i === 1 || i === 0)) {
+          e.rusher = true; // blitz sends two linebackers
+        } else if (this.defCall === 'coverage') {
+          // drop into hook/curl zones
+          e.zone = zoneLandmark({ x: (i - 1) * 9, y: 8 });
+        } else {
+          // balanced: LB0 spies RB, LB2 covers TE, LB1 hooks middle
+          e.assignRole = i === 0 ? 'RB' : i === 2 ? 'TE' : null;
+          if (!e.assignRole) e.zone = zoneLandmark({ x: 0, y: 7 });
+        }
+        continue;
+      }
+      // secondary
+      if (this.defCall === 'coverage') {
+        // zone shell: corners take deep thirds, safeties split the deep middle
+        const zmap: Record<string, RoutePoint> = {
+          CB0: { x: -16, y: 16 }, CB1: { x: 16, y: 16 },
+          S0: { x: -7, y: 20 }, S1: { x: 7, y: 20 },
+        };
+        e.zone = zoneLandmark(zmap[e.role] ?? { x: 0, y: 16 });
+      } else {
+        // man coverage; in balanced one safety plays deep help
+        e.assignRole = man[e.role] ?? null;
+        if (this.defCall === 'balanced' && e.role === 'S1') {
+          e.assignRole = null;
+          e.zone = zoneLandmark({ x: 0, y: 18 }); // deep middle help
+        }
+      }
+    }
   }
 
   callFieldGoal(): void {
@@ -563,6 +644,8 @@ export class ArcadeGame {
         vx: 0, vy: 0, targetX: midX + rel.x, targetY: this.losY + rel.y,
         route: [], routeIdx: 0, engagedWith: null, engageTimer: 0, stunTimer: 0, isBlocking: false,
         body: null, lungeT: 0, celebT: 0, animPhase: 0, diveCd: 0, diving: false,
+        rusher: false, wonBlock: false, beatBy: null, beatT: 0,
+        assignRole: null, zone: null, beatenT: 0, beatenIdx: -1,
       });
     };
     const addOff = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'off', role, rel);
@@ -830,6 +913,11 @@ export class ArcadeGame {
       }
       if (e.celebT > 0) e.celebT -= dt;
       if (e.diveCd > 0) e.diveCd -= dt;
+      if (e.beatT > 0) {
+        e.beatT -= dt;
+        if (e.beatT <= 0) e.beatBy = null;
+      }
+      if (e.beatenT > 0) e.beatenT -= dt;
     }
   }
 
@@ -908,6 +996,7 @@ export class ArcadeGame {
   }
 
   private updateBlocker(e: Ent, dt: number): void {
+    const isRun = this.play?.type === 'run';
     // engaged: keep driving THROUGH the rusher so the bodies genuinely shove
     if (e.engagedWith && e.engagedWith.stunTimer <= 0 && e.engageTimer > 0) {
       e.engageTimer -= dt;
@@ -917,46 +1006,64 @@ export class ArcadeGame {
       const awayX = d.x - protectee.x;
       const awayY = d.y - protectee.y;
       const al = Math.hypot(awayX, awayY) || 1;
-      // block strength: blk vs str decides who wins the leverage battle
-      const drivePow = 0.55 + (e.player.attrs.blk - d.player.attrs.str) * 0.006;
-      this.moveToward(e, d.x + (awayX / al) * 0.8, d.y + (awayY / al) * 0.8, dt, clamp(drivePow, 0.25, 0.9));
+      // block leverage: blk vs str decides how hard the blocker drives.
+      // On runs a winning OL genuinely displaces the DL to open a lane.
+      const edge = (e.player.attrs.blk - d.player.attrs.str) * (isRun ? 0.014 : 0.009);
+      const drivePow = (isRun ? 0.7 : 0.5) + edge;
+      const push = isRun ? 1.3 : 0.8;
+      this.moveToward(e, d.x + (awayX / al) * push, d.y + (awayY / al) * push, dt, clamp(drivePow, 0.2, 1.05));
       if (e.engageTimer <= 0 && this.phys && d.body) {
-        // defender sheds: slip burst around the blocker toward the ball
+        // rusher WINS the rep: sheds with a burst to the ball and the blocker
+        // can't re-grab him for a beat — this is how pressure gets home
         e.engagedWith = null;
         d.engagedWith = null;
+        d.wonBlock = true;
+        e.beatBy = d;
+        e.beatT = 1.1;
         const t = this.carrier ?? this.qbEnt!;
         const sx = t.x - d.x;
         const sy = t.y - d.y;
         const sl = Math.hypot(sx, sy) || 1;
-        this.phys.impulse(d.body, (sx / sl) * 5 + this.r.range(-2, 2), (sy / sl) * 5);
-        e.stunTimer = 0.35; // blocker beaten for a beat
+        this.phys.impulse(d.body, (sx / sl) * 6 + this.r.range(-1.5, 1.5), (sy / sl) * 6);
+        e.stunTimer = 0.3; // blocker beaten for a beat
         this.spawnDust((e.x + d.x) / 2, (e.y + d.y) / 2, 4);
       }
       return;
     }
+    // find someone to block: prefer an unblocked rusher threatening the QB,
+    // skip anyone who just beat us and anyone already past us with a free lane
+    const protectee = this.carrier ?? this.qbEnt!;
     let nearest: Ent | null = null;
-    let nd = 7;
+    let best = 8;
     for (const d of this.ents) {
       if (d.side !== 'def' || d.engagedWith || d.stunTimer > 0) continue;
+      if (d === e.beatBy || d.wonBlock) continue;
       const dist = Math.hypot(d.x - e.x, d.y - e.y);
-      if (dist < nd) {
-        nd = dist;
+      // weight rushers between us and the QB as the priority threat
+      const threat = d.rusher || isRun ? dist : dist + 3;
+      if (threat < best) {
+        best = threat;
         nearest = d;
       }
     }
-    if (nearest && nd < 1.15 && !e.engagedWith) {
-      // engage: hold time from blk vs str; the pad-level pop is physical
+    if (nearest && Math.hypot(nearest.x - e.x, nearest.y - e.y) < 1.2 && !e.engagedWith) {
+      // hold time from blk vs str; the pocket decays as the play ages so no
+      // one blocks forever — a QB who holds the ball WILL eventually get hit
+      const pocketDecay = this.play?.type === 'pass' ? this.playElapsed * 0.16 : 0;
       const hold = clamp(
-        1.1 + (e.player.attrs.blk - nearest.player.attrs.str) * 0.028 + this.r.gauss(0, 0.25),
-        0.35,
-        3.2,
+        1.0 + (e.player.attrs.blk - nearest.player.attrs.str) * 0.03 + this.r.gauss(0, 0.22) - pocketDecay,
+        0.3,
+        3.4,
       );
       e.engagedWith = nearest;
       nearest.engagedWith = e;
       e.engageTimer = hold;
       this.spawnDust((e.x + nearest.x) / 2, (e.y + nearest.y) / 2, 3);
     } else if (nearest) {
-      this.moveToward(e, nearest.x, nearest.y, dt, 0.85);
+      // slide to wall off the threat (mirror between him and the QB)
+      const mx = (nearest.x + protectee.x) / 2;
+      const my = nearest.y - 0.3;
+      this.moveToward(e, isRun ? nearest.x : mx, isRun ? nearest.y : my, dt, 0.9);
     }
   }
 
@@ -1015,48 +1122,73 @@ export class ArcadeGame {
         continue;
       }
 
-      if (e.role.startsWith('DL')) {
-        // rush the passer / run fit
+      // play-action freezes a spying/rushing LB for a beat
+      if (e.role.startsWith('LB') && play.playAction && this.playElapsed < 0.7) continue;
+
+      // RUSHERS: designated pass rush (or beat their blocker). Once a rusher
+      // has a free lane, drive hard for the QB — this is how sacks happen.
+      if (e.rusher || e.wonBlock) {
         const t = this.carrier ?? this.qbEnt!;
-        this.moveToward(e, t.x, t.y, dt, 0.92);
+        const mult = e.wonBlock ? 1.02 : 0.95;
+        this.moveToward(e, t.x + t.vx * 0.1, t.y + t.vy * 0.1, dt, mult);
         continue;
       }
-      if (e.role.startsWith('LB')) {
-        const i = Number(e.role[2]);
-        // one LB rushes sometimes; others cover RB/TE/short zone
-        if (i === 1 && play.playAction && this.playElapsed < 0.8) {
-          // frozen by play action
-          continue;
-        }
-        const assignRole = i === 0 ? 'RB' : i === 2 ? 'TE' : null;
-        const assign = assignRole ? this.ents.find((x) => x.side === 'off' && x.role === assignRole) : null;
+
+      // MAN coverage on an assigned receiver
+      if (e.assignRole) {
+        const assign = this.ents.find((x) => x.side === 'off' && x.role === e.assignRole);
         if (assign && ballLive) {
           this.coverTarget(e, assign, dt);
-        } else {
-          // middle zone: hover 6 yds past LOS near ball x
-          this.moveToward(e, this.ball.x, this.losY + 6.5, dt, 0.85);
+          continue;
         }
+      }
+
+      // ZONE drop: sit at the landmark, but jump the nearest live threat in the area
+      if (e.zone && ballLive) {
+        let threat: Ent | null = null;
+        let td = 7.5;
+        for (const o of this.ents) {
+          if (o.side !== 'off' || o.route.length === 0) continue;
+          const d = Math.hypot(o.x - e.zone.x, o.y - e.zone.y);
+          if (d < td) {
+            td = d;
+            threat = o;
+          }
+        }
+        if (threat) this.coverTarget(e, threat, dt, 0.5);
+        else this.moveToward(e, e.zone.x, e.zone.y, dt, 0.8);
         continue;
       }
-      // DBs: man coverage
-      const map: Record<string, string> = { CB0: 'WR1', CB1: 'WR2', S0: 'WR3', S1: 'TE' };
-      const assign = this.ents.find((x) => x.side === 'off' && x.role === map[e.role]);
-      if (e.role === 'S1' && play.routes && !play.routes.TE) {
-        // deep safety help
-        this.moveToward(e, this.ball.x, this.losY + 15, dt, 0.8);
-        continue;
-      }
-      if (assign) this.coverTarget(e, assign, dt);
+
+      // fallback: mirror the ball at medium depth
+      this.moveToward(e, this.ball.x, this.losY + 8, dt, 0.8);
     }
   }
 
-  private coverTarget(e: Ent, target: Ent, dt: number): void {
-    // coverage skill controls reaction: worse cover = trails further behind
+  /**
+   * Coverage step. Separation is a race: the defender runs at his OWN speed, so
+   * a faster receiver naturally pulls away. cov rating sets how tightly he
+   * anticipates the break; a low-cov defender who loses a rep is briefly
+   * "beaten" and can't close, springing the receiver open.
+   */
+  private coverTarget(e: Ent, target: Ent, dt: number, cushionMul = 1): void {
     const covSkill = e.player.attrs.cov / 99;
-    const trail = (1 - covSkill) * 1.6 + 0.25;
-    const tx = target.x - target.vx * trail * 0.4;
-    const ty = target.y - Math.abs(trail) * 0.6;
-    this.moveToward(e, tx, ty, dt, 0.98);
+    // on a route break, contest it: cov+agi vs the receiver's route-running
+    if (target.routeIdx > (e.beatenIdx ?? -1) && target.route.length > 0) {
+      e.beatenIdx = target.routeIdx;
+      const winCover = 0.35 + (e.player.attrs.cov + e.player.attrs.agi) / 2 / 99 * 0.5
+        - (target.player.attrs.agi + target.player.attrs.spd) / 2 / 99 * 0.5;
+      if (!this.r.chance(clamp(winCover, 0.12, 0.9))) {
+        e.beatenT = 0.35 + (1 - covSkill) * 0.5; // lost the rep — trails the cut
+      }
+    }
+    // anticipate: good cover keys the receiver's lead; a beaten DB flat-foots
+    const lead = e.beatenT > 0 ? -0.3 : covSkill * 0.35;
+    const cushion = (1 - covSkill) * 1.1 * cushionMul;
+    const tx = target.x + target.vx * lead;
+    const ty = target.y + target.vy * lead - cushion;
+    const speedMul = e.beatenT > 0 ? 0.72 : 1.0;
+    this.moveToward(e, tx, ty, dt, speedMul);
   }
 
   private updateBall(dt: number): void {

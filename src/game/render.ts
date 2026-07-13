@@ -53,6 +53,44 @@ function getCrowdTex(): HTMLCanvasElement {
   return c;
 }
 
+// pre-rendered 8-bit football, drawn from a pixel grid so it scales blocky
+let ballTex: HTMLCanvasElement | null = null;
+function getBallTex(): HTMLCanvasElement {
+  if (ballTex) return ballTex;
+  // legend: . transparent, K outline, B brown, S brown shade, H highlight, W white
+  const rows = [
+    '....KKKK....',
+    '..KKBBBBKK..',
+    '.KBBHBBBBSK.',
+    'KBWBBBBBBSSK',
+    'KBBWWWWWWBSK',
+    'KBWBBBBBBSSK',
+    '.KBBHBBBBSK.',
+    '..KKSSSSKK..',
+    '....KKKK....',
+  ];
+  const colors: Record<string, string> = {
+    K: '#3a1e0a', B: '#9a5a24', S: '#7a4318', H: '#b9793c', W: '#f4efe2',
+  };
+  const cw = rows[0].length;
+  const ch = rows.length;
+  const scale = 4;
+  const c = document.createElement('canvas');
+  c.width = cw * scale;
+  c.height = ch * scale;
+  const g = c.getContext('2d')!;
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const ch2 = rows[y][x];
+      if (ch2 === '.') continue;
+      g.fillStyle = colors[ch2];
+      g.fillRect(x * scale, y * scale, scale, scale);
+    }
+  }
+  ballTex = c;
+  return c;
+}
+
 export function render(
   ctx: CanvasRenderingContext2D,
   game: ArcadeGame,
@@ -402,18 +440,18 @@ export function render(
     } else {
       by -= 0.9 * s; // carried at waist height
     }
+    const tex = getBallTex();
+    const bw = 1.7 * s;
+    const bh = bw * (tex.height / tex.width);
+    // planted shadow (does not spin with the ball)
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath();
+    ctx.ellipse(bx, by + bh * 0.55, bw * 0.4, bh * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.save();
     ctx.translate(bx, by);
     ctx.rotate(rot);
-    ctx.fillStyle = '#8a5220';
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 0.55 * s, 0.36 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = '#fff';
-    line(ctx, -0.2 * s, 0, 0.2 * s, 0);
+    ctx.drawImage(tex, -bw / 2, -bh / 2, bw, bh);
     ctx.restore();
   }
 
