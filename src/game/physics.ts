@@ -17,6 +17,12 @@ export interface PhysBody {
   body: Matter.Body;
 }
 
+// collision categories: the ball carrier can be made to "phase" through players
+// locked in a block (they're occupied) so he isn't stuck behind the pile, while
+// still colliding with — and being tackled by — free defenders.
+const CAT_PLAYER = 0x0001;
+const CAT_BLOCKED = 0x0002;
+
 export class PhysicsWorld {
   engine: Matter.Engine;
   private acc = 0;
@@ -43,9 +49,20 @@ export class PhysicsWorld {
       frictionAir: AIR,
       friction: 0.02,
       restitution: 0.08,
+      collisionFilter: { category: CAT_PLAYER, mask: CAT_PLAYER | CAT_BLOCKED, group: 0 },
     });
     Matter.Composite.add(this.engine.world, body);
     return body;
+  }
+
+  /** Flag a body as locked in a block (or not) so carriers can slip past it. */
+  setBlocked(body: Matter.Body, blocked: boolean): void {
+    body.collisionFilter.category = blocked ? CAT_BLOCKED : CAT_PLAYER;
+  }
+
+  /** When true, this body ignores blocked players (runs through the pile). */
+  setPhasing(body: Matter.Body, phasing: boolean): void {
+    body.collisionFilter.mask = phasing ? CAT_PLAYER : CAT_PLAYER | CAT_BLOCKED;
   }
 
   remove(body: Matter.Body): void {

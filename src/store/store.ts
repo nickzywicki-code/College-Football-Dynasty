@@ -19,6 +19,7 @@ import {
 } from '../engine/franchise/offseason';
 import { executePick, runDraftUntilUserPick } from '../engine/franchise/draft';
 import { advanceFreeAgencyDay, userOffer } from '../engine/franchise/freeAgency';
+import { newCoachStaff } from '../engine/franchise/coaches';
 import type { ProgressionReport } from '../engine/franchise/progression';
 import { saveLeague } from './db';
 
@@ -36,6 +37,7 @@ export type Screen =
   | 'freeAgency'
   | 'trade'
   | 'history'
+  | 'coaches'
   | 'settings'
   | 'game'; // arcade
 
@@ -96,8 +98,11 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist();
   },
 
-  setLeague: (league, slot) =>
-    set({ league, saveSlot: slot, nav: [{ screen: 'hub' }], progressionReport: null }),
+  setLeague: (league, slot) => {
+    // backfill coaching staff for saves created before coaches existed
+    for (const t of league.teams) if (!t.coaches) t.coaches = newCoachStaff(runtimeRng);
+    set({ league, saveSlot: slot, nav: [{ screen: 'hub' }], progressionReport: null });
+  },
 
   quitToTitle: () => {
     get().persist();

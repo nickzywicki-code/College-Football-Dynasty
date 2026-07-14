@@ -5,6 +5,7 @@ import type { BoxScore, GameStatLine, League, ScheduledGame, SeasonStats, Team }
 import { REGULAR_SEASON_WEEKS, emptySeasonStats, teamName } from './../types';
 import { autoDepthChart } from './../league';
 import { simulateGame } from './gameSim';
+import { awardCoachXp } from '../franchise/coaches';
 
 /** Merge a game stat line into a player's current-season totals. */
 function applyStatLine(league: League, teamAbbr: string, line: GameStatLine): void {
@@ -75,6 +76,18 @@ export function applyGameResult(
   // refresh depth charts for both teams (injuries shuffle starters)
   autoDepthChart(home, league.players);
   autoDepthChart(away, league.players);
+
+  // coaching staff earn XP from the result (both teams; notices only for user)
+  const homeWon = box.homeScore > box.awayScore;
+  const awayWon = box.awayScore > box.homeScore;
+  const cr = new Rand(game.id * 7919 + league.season);
+  const hRes = awardCoachXp(home, cr, { win: homeWon, pointsFor: box.homeScore, pointsAgainst: box.awayScore });
+  const aRes = awardCoachXp(away, cr, { win: awayWon, pointsFor: box.awayScore, pointsAgainst: box.homeScore });
+  const userRes = home.id === league.userTeamId ? hRes : away.id === league.userTeamId ? aRes : null;
+  if (userRes) {
+    for (const msg of userRes.levelUps) league.news.unshift(`🎓 ${msg}`);
+    league.coachLevelUps = [...(league.coachLevelUps ?? []), ...userRes.levelUps];
+  }
 }
 
 // ---------------------------------------------------------------------------

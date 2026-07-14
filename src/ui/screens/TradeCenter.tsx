@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useLeague, useStore } from '../../store/store';
-import { Seg, TeamDot, TopBar } from '../components';
+import { PlayerHeadshot, Seg, TeamDot, TopBar } from '../components';
 import type { DraftPickAsset, TradeOffer } from '../../engine/types';
 import { evaluateTrade, executeTrade, playerTradeValue, pickTradeValue } from '../../engine/franchise/trades';
 import { findReturnsForPlayer, packageToAcquire, FoundTrade } from '../../engine/franchise/tradeFinder';
@@ -66,14 +66,21 @@ export function TradeCenter() {
     return p.contract ? `$${p.contract.salary}M × ${p.contract.yearsLeft}yr` : 'No contract';
   };
 
-  // detail chips (age · contract · OVR) for a single headline player
+  // headshot + detail chips (age · contract · OVR) for a single headline player
   const PlayerFacts = ({ id }: { id: number }) => {
     const p = league.players[id];
     if (!p) return null;
+    const t = p.teamId >= 0 ? league.teams[p.teamId] : null;
     return (
-      <div style={{ fontSize: '0.72rem', color: 'var(--dim)', marginBottom: 8 }}>
-        {p.age}y · {contractLabel(id)} · {p.overall} OVR
-        {p.injuryWeeks > 0 && <span style={{ color: 'var(--danger)' }}> · ✚{p.injuryWeeks}w</span>}
+      <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+        <PlayerHeadshot player={p} colors={t ? t.colors : ['#3a3f5a', '#8b93a8']} size={40} />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{p.pos} {p.firstName} {p.lastName}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--dim)' }}>
+            {p.age}y · {contractLabel(id)} · {p.overall} OVR
+            {p.injuryWeeks > 0 && <span style={{ color: 'var(--danger)' }}> · ✚{p.injuryWeeks}w</span>}
+          </div>
+        </div>
       </div>
     );
   };
@@ -395,6 +402,7 @@ export function TradeCenter() {
               const sel = sideSel.has(p.id);
               return (
                 <div key={p.id} className="list-item" onClick={() => toggle(sideSel, sideSetSel, p.id)}>
+                  <PlayerHeadshot player={p} colors={side.colors} size={38} />
                   <span className="pos-badge">{p.pos}</span>
                   <div className="grow">
                     <div className="name">

@@ -28,7 +28,7 @@ export interface OffensivePlay {
 /** Lineup offsets from ball position at snap (shotgun base). */
 export const OFFENSE_ALIGNMENT: Record<string, RoutePoint> = {
   QB: { x: 0, y: -5 },
-  RB: { x: -2.2, y: -5 },
+  RB: { x: -2.2, y: -3.8 },
   TE: { x: 8.5, y: -0.8 },
   WR1: { x: -21, y: -0.5 },
   WR2: { x: 21, y: -0.5 },

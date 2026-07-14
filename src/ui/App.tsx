@@ -16,6 +16,7 @@ import { FreeAgencyScreen } from './screens/FreeAgencyScreen';
 import { TradeCenter } from './screens/TradeCenter';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { Coaches } from './screens/Coaches';
 import { GameScreen } from './screens/GameScreen';
 
 const TABS: { screen: Screen; label: string; ico: string }[] = [
@@ -53,6 +54,8 @@ function CurrentScreen({ screen }: { screen: Screen }) {
       return <TradeCenter />;
     case 'history':
       return <HistoryScreen />;
+    case 'coaches':
+      return <Coaches />;
     case 'settings':
       return <SettingsScreen />;
     case 'game':

@@ -137,6 +137,24 @@ export interface Team {
   /** Season history: e.g. { season, wins, losses, result } */
   history: TeamSeasonRecord[];
   draftPicks: DraftPickAsset[];
+  /** Coaching staff (optional on legacy saves; backfilled on load). */
+  coaches?: CoachStaff;
+}
+
+export type CoachRole = 'HC' | 'OC' | 'DC';
+
+export interface Coach {
+  name: string;
+  role: CoachRole;
+  archetype: string; // flavor + perk theme
+  level: number; // 1..10
+  xp: number; // toward next level
+}
+
+export interface CoachStaff {
+  hc: Coach;
+  oc: Coach;
+  dc: Coach;
 }
 
 export interface TeamSeasonRecord {
@@ -276,6 +294,8 @@ export interface League {
   news: string[]; // rolling news feed (most recent first)
   settings: GameSettings;
   salaryCap: number; // $M
+  /** pending coach level-up notices for the user (shown then cleared) */
+  coachLevelUps?: string[];
 }
 
 export const SCHEMA_VERSION = 1;
