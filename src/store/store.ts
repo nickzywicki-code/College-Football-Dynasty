@@ -17,9 +17,10 @@ import {
   finishDraftToFreeAgency,
   rolloverToNewSeason,
 } from '../engine/franchise/offseason';
-import { executePick, runDraftUntilUserPick } from '../engine/franchise/draft';
+import { executePick, runDraftUntilUserPick, aiMakePick } from '../engine/franchise/draft';
 import { advanceFreeAgencyDay, userOffer } from '../engine/franchise/freeAgency';
 import { newCoachStaff } from '../engine/franchise/coaches';
+import { executeDraftTrade, DraftTradeOffer } from '../engine/franchise/draftTrades';
 import type { ProgressionReport } from '../engine/franchise/progression';
 import { saveLeague } from './db';
 
@@ -74,7 +75,10 @@ interface AppState {
 
   continueOffseason: () => void;
   draftUntilUser: () => void;
+  draftOnePick: () => void;
   makeUserPick: (playerId: number) => void;
+  toggleWatch: (playerId: number) => void;
+  draftPickTrade: (offer: DraftTradeOffer) => void;
   finishDraft: () => void;
   advanceFaDay: () => void;
   makeFaOffer: (playerId: number, salary: number, years: number) => boolean;
@@ -167,8 +171,38 @@ export const useStore = create<AppState>((set, get) => ({
     const { league } = get();
     if (!league || !league.draft || league.draft.complete) return;
     executePick(league, playerId);
-    runDraftUntilUserPick(league, runtimeRng);
+    // stop after the user's pick so they can step through / trade the next picks
     if (league.draft.complete) get().finishDraft();
+    get().touch();
+    get().persist();
+  },
+
+  /** Advance a single AI pick (pick-by-pick stepping). */
+  draftOnePick: () => {
+    const { league } = get();
+    if (!league || !league.draft || league.draft.complete) return;
+    if (league.draft.order[league.draft.currentPickIndex].teamId === league.userTeamId) return;
+    aiMakePick(league, runtimeRng);
+    if (league.draft.complete) get().finishDraft();
+    get().touch();
+    get().persist();
+  },
+
+  toggleWatch: (playerId) => {
+    const { league } = get();
+    if (!league || !league.draft) return;
+    const w = new Set(league.draft.watch ?? []);
+    if (w.has(playerId)) w.delete(playerId);
+    else w.add(playerId);
+    league.draft.watch = [...w];
+    get().touch();
+    get().persist();
+  },
+
+  draftPickTrade: (offer) => {
+    const { league } = get();
+    if (!league || !league.draft) return;
+    executeDraftTrade(league, offer);
     get().touch();
     get().persist();
   },

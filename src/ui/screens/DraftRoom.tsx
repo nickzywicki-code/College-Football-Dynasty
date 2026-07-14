@@ -5,6 +5,7 @@ import { useLeague, useStore } from '../../store/store';
 import { Seg, TeamDot, TopBar } from '../components';
 import { POSITIONS, Position } from '../../engine/types';
 import { positionNeed } from '../../engine/franchise/draft';
+import { findTradeUpOffers, findTradeBackOffers } from '../../engine/franchise/draftTrades';
 
 export function DraftRoom() {
   const league = useLeague();
@@ -12,11 +13,17 @@ export function DraftRoom() {
   const navigate = useStore((s) => s.navigate);
   const makeUserPick = useStore((s) => s.makeUserPick);
   const draftUntilUser = useStore((s) => s.draftUntilUser);
+  const draftOnePick = useStore((s) => s.draftOnePick);
+  const toggleWatch = useStore((s) => s.toggleWatch);
+  const draftPickTrade = useStore((s) => s.draftPickTrade);
   const [posFilter, setPosFilter] = useState<Position | 'ALL'>('ALL');
-  const [tab, setTab] = useState<'board' | 'picks' | 'mine'>('board');
+  const [tab, setTab] = useState<'board' | 'trades' | 'picks' | 'mine'>('board');
 
   const draft = league.draft;
   const team = league.teams[league.userTeamId];
+  const watch = new Set(draft?.watch ?? []);
+  const tradeUp = useMemo(() => (draft && !draft.complete ? findTradeUpOffers(league) : []), [draft, league, draft?.currentPickIndex]);
+  const tradeBack = useMemo(() => (draft && !draft.complete ? findTradeBackOffers(league) : []), [draft, league, draft?.currentPickIndex]);
 
   const available = useMemo(
     () =>
@@ -70,10 +77,27 @@ export function DraftRoom() {
               </div>
             </div>
             {!userOnClock && (
-              <button className="btn warn" style={{ marginTop: 12 }} onClick={draftUntilUser}>
-                ⏩ Sim to My Pick
-              </button>
+              <div className="btnrow" style={{ marginTop: 12 }}>
+                <button className="btn secondary" onClick={draftOnePick}>
+                  ▶ Next Pick
+                </button>
+                <button className="btn warn" onClick={draftUntilUser}>
+                  ⏩ Sim to My Pick
+                </button>
+              </div>
             )}
+            {(() => {
+              // alert if a watched prospect could go before my next pick
+              const nextTaken = draft.prospects.filter((pr) => !pr.drafted && watch.has(pr.playerId));
+              return userOnClock === false && nextTaken.length > 0 ? (
+                <p style={{ marginTop: 8, fontSize: '0.75rem', color: 'var(--gold)' }}>
+                  ⭐ On your watchlist, still available: {nextTaken.slice(0, 3).map((pr) => {
+                    const p = league.players[pr.playerId];
+                    return `${p.pos} ${p.lastName}`;
+                  }).join(', ')}
+                </p>
+              ) : null;
+            })()}
           </div>
         )}
         {draft.complete && (
@@ -87,11 +111,12 @@ export function DraftRoom() {
           </div>
         )}
 
-        <Seg<'board' | 'picks' | 'mine'>
+        <Seg<'board' | 'trades' | 'picks' | 'mine'>
           options={[
-            { key: 'board', label: 'Big Board' },
-            { key: 'picks', label: 'All Picks' },
-            { key: 'mine', label: 'My Picks' },
+            { key: 'board', label: 'Board' },
+            { key: 'trades', label: `Trade ${tradeUp.length + tradeBack.length ? '•' : ''}` },
+            { key: 'picks', label: 'Picks' },
+            { key: 'mine', label: 'Mine' },
           ]}
           value={tab}
           onChange={setTab}
@@ -114,10 +139,18 @@ export function DraftRoom() {
             <div className="card">
               {available.map((pr) => {
                 const p = league.players[pr.playerId];
+                const watched = watch.has(pr.playerId);
                 return (
                   <div key={pr.playerId} className="list-item">
+                    <button
+                      onClick={() => toggleWatch(pr.playerId)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0, filter: watched ? 'none' : 'grayscale(1) opacity(0.4)' }}
+                      aria-label="watch"
+                    >
+                      ⭐
+                    </button>
                     <span className="pos-badge">{p.pos}</span>
-                    <div className="grow">
+                    <div className="grow" onClick={() => navigate('player', { playerId: p.id })}>
                       <div className="name">
                         {p.firstName} {p.lastName}
                       </div>
@@ -137,6 +170,49 @@ export function DraftRoom() {
                   </div>
                 );
               })}
+            </div>
+          </>
+        )}
+
+        {tab === 'trades' && (
+          <>
+            <div className="card">
+              <h2>Trade Up</h2>
+              <p style={{ fontSize: '0.76rem', color: 'var(--dim)', margin: '0 0 8px' }}>
+                Move up the board — costs you future picks.
+              </p>
+              {tradeUp.length === 0 && <p className="empty">No trade-up moves available right now.</p>}
+              {tradeUp.map((o, i) => (
+                <div key={i} className="list-item">
+                  <TeamDot team={league.teams[o.partnerId]} size={26} />
+                  <div className="grow">
+                    <div className="name" style={{ fontSize: '0.82rem' }}>
+                      Move up to {o.summary.get} <span style={{ color: 'var(--dim)' }}>({league.teams[o.partnerId].abbr})</span>
+                    </div>
+                    <div className="meta">You give: {o.summary.give}</div>
+                  </div>
+                  <button className="btn small" onClick={() => draftPickTrade(o)}>Trade</button>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <h2>Trade Back</h2>
+              <p style={{ fontSize: '0.76rem', color: 'var(--dim)', margin: '0 0 8px' }}>
+                Slide down for extra picks.
+              </p>
+              {tradeBack.length === 0 && <p className="empty">No trade-back offers right now.</p>}
+              {tradeBack.map((o, i) => (
+                <div key={i} className="list-item">
+                  <TeamDot team={league.teams[o.partnerId]} size={26} />
+                  <div className="grow">
+                    <div className="name" style={{ fontSize: '0.82rem' }}>
+                      Get {o.summary.get} <span style={{ color: 'var(--dim)' }}>({league.teams[o.partnerId].abbr})</span>
+                    </div>
+                    <div className="meta">You give: {o.summary.give}</div>
+                  </div>
+                  <button className="btn small" onClick={() => draftPickTrade(o)}>Trade</button>
+                </div>
+              ))}
             </div>
           </>
         )}
