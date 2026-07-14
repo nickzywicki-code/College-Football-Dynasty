@@ -259,6 +259,8 @@ export interface DraftState {
   order: { round: number; pick: number; teamId: number; selectedPlayerId: number | null }[];
   currentPickIndex: number;
   complete: boolean;
+  /** prospect playerIds the user is tracking */
+  watch?: number[];
 }
 
 export interface FreeAgencyState {

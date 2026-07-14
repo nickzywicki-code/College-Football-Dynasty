@@ -895,6 +895,13 @@ export class ArcadeGame {
     if (this.jukeCooldown > 0) this.jukeCooldown -= dt;
     if (this.releaseT > 0) this.releaseT -= dt;
 
+    // game clock ticks down in real time DURING the play so it visibly moves
+    // (endQuarter is deferred to the play's natural end)
+    if (this.clock > 0) {
+      this.clock = Math.max(0, this.clock - dt);
+      this.offStats.totals.timeOfPossession += dt;
+    }
+
     // handoff
     if (this.handoffTimer > 0) {
       this.handoffTimer -= dt;
@@ -979,6 +986,30 @@ export class ArcadeGame {
     this.phys.drive(e.body, (dx / d) * sp, (dy / d) * sp, acc, dt);
   }
 
+  /**
+   * Ball-carrier speed edge by field zone. Behind / at the line the offense is a
+   * touch faster so you can actually hit a hole, get the edge, or buy time to
+   * throw. Once you break into the open field that edge fades and the defense
+   * takes over — so plays don't house every time.
+   */
+  private offSpeedMult(e: Ent): number {
+    if (e !== this.carrier) return 1;
+    const past = e.y - this.losY;
+    if (past <= 3) return 1.1; // behind the line: offense wins the first step
+    return clamp(1.08 - (past - 3) * 0.02, 0.95, 1.08); // fades downfield
+  }
+
+  /**
+   * Pursuit-speed edge for a defender chasing the carrier. Mirror of the above:
+   * slower behind the line (let the play develop), faster in the open field so
+   * a scramble or a bounced-outside run gets run down instead of scoring.
+   */
+  private defPursuitMult(carrier: Ent): number {
+    const past = carrier.y - this.losY;
+    if (past <= 3) return 0.9; // behind the line: don't swarm instantly
+    return clamp(1.0 + (past - 3) * 0.02, 1.0, 1.18); // ramps up downfield
+  }
+
   private updateOffense(dt: number): void {
     const play = this.play!;
     for (const e of this.ents) {
@@ -1016,7 +1047,7 @@ export class ArcadeGame {
         const mag = Math.hypot(sx, sy);
         if (e.body && this.phys) {
           if (mag > 0.08) {
-            const sp = speedOf(e.player);
+            const sp = speedOf(e.player) * this.offSpeedMult(e);
             const acc = 14 + (e.player.attrs.acc / 99) * 12;
             // response curve: small drags still move near full speed
             const throttle = Math.min(1, Math.pow(Math.min(1, mag), 0.5));
@@ -1236,13 +1267,14 @@ export class ArcadeGame {
         }
         const dist = Math.hypot(carrier.x - e.x, carrier.y - e.y);
         const mySpeed = speedOf(e.player);
+        const pm = this.defPursuitMult(carrier);
         if (dist > 3) {
           // true intercept: aim where the carrier will be when I can arrive
           const t = Math.min(0.7, dist / Math.max(4, mySpeed));
-          this.moveToward(e, carrier.x + carrier.vx * t, carrier.y + carrier.vy * t, dt);
+          this.moveToward(e, carrier.x + carrier.vx * t, carrier.y + carrier.vy * t, dt, pm);
         } else {
           // attack phase: aim straight at the body, no overshooting lead
-          this.moveToward(e, carrier.x + carrier.vx * 0.08, carrier.y + carrier.vy * 0.08, dt);
+          this.moveToward(e, carrier.x + carrier.vx * 0.08, carrier.y + carrier.vy * 0.08, dt, pm);
           // dive attempt: close, off cooldown, and actually closing in
           if (dist < 1.9 && e.diveCd <= 0 && this.phys && e.body) {
             const dvx = carrier.x + carrier.vx * 0.15 - e.x;
@@ -1617,8 +1649,10 @@ export class ArcadeGame {
     }
 
     if (!touchdown) audio.play('whistle');
-    const clockStops = touchdown || outOfBounds || (play.type === 'pass' && !this.passThrown && false);
-    this.chargeClock(6 + this.playElapsed * 0.4 + (clockStops ? 0 : 26));
+    const clockStops = touchdown || outOfBounds;
+    // the play's own duration already ran off live; charge the play-clock runoff
+    // between snaps (large when the clock keeps running) to curb 50+ pt games
+    this.chargeClock(clockStops ? 10 : 52);
 
     if (touchdown) {
       this.touchdownFor(this.possession);
