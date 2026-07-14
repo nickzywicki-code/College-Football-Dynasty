@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import type { Player, Team } from '../engine/types';
 import { useStore } from '../store/store';
 import { getTeamLogo, LogoTeam } from '../game/logos';
-import { getSprite, getHeadshot, skinFor, SPRITE_GRID, HEADSHOT_GRID, Pose } from '../game/sprites';
+import { getSprite, getHeadshot, skinFor, hairFor, SPRITE_GRID, HEADSHOT_GRID, Pose } from '../game/sprites';
 
 export function ovrClass(o: number): string {
   if (o >= 88) return 'ovr elite';
@@ -60,7 +60,7 @@ export function PlayerHeadshot({
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, cv.width, cv.height);
     const px = Math.max(1, Math.round((size * dpr) / HEADSHOT_GRID.h));
-    const shot = getHeadshot({ primary: colors[0], secondary: colors[1], skin: skinFor(player.id) }, px);
+    const shot = getHeadshot({ primary: colors[0], secondary: colors[1], skin: skinFor(player.id) }, px, hairFor(player.id));
     const ox = Math.round((cv.width - shot.width) / 2);
     const oy = Math.round((cv.height - shot.height) / 2);
     ctx.drawImage(shot, ox, oy);

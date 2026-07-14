@@ -372,40 +372,41 @@ export function getSprite(scheme: SpriteScheme, pose: Pose, px: number): HTMLCan
   return canvas;
 }
 
-// --- front-facing helmet bust portrait (Madden-style headshot) -------------
-// 18x18 grid. Legend: H helmet, G stripe, F facemask, S skin, E eye,
-// D shoulder pad, A pad shadow, . transparent.
+// --- front-facing bareheaded roster portrait (no helmet) -------------------
+// 18x18 grid. Legend: R hair, S skin, E eye, M mouth, J jersey (primary),
+// N jersey trim (secondary), . transparent.
 const HEADSHOT = [
-  '.....HHHHHHHH.....',
-  '...HHHHHHHHHHHH...',
-  '..HHHHHHHHHHHHHH..',
-  '..HHHHHGGGGHHHHH..',
-  '..HHHHHHHHHHHHHH..',
-  '..HHSSSSSSSSSSHH..',
-  '..HHSSEESSEESSHH..',
-  '..HFFFFFFFFFFFFH..',
-  '..HHSSSSSSSSSSHH..',
-  '..HFFFFFFFFFFFFH..',
-  '..HHSSSSSSSSSSHH..',
-  '...HFFFFFFFFFFH...',
-  '....HSSSSSSSSH....',
+  '.......RRRR.......',
+  '.....RRRRRRRR.....',
+  '....RRRRRRRRRR....',
+  '...RRRRRRRRRRRR...',
+  '...RRSSSSSSSSRR...',
+  '..RRSSSSSSSSSSRR..',
+  '..RSSEESSSSEESSR..',
+  '..SSSSSSSSSSSSSS..',
+  '..SSSSSSSSSSSSSS..',
+  '..SSSSSMMMMSSSSS..',
+  '...SSSSSSSSSSSS...',
+  '....SSSSSSSSSS....',
   '.....SSSSSSSS.....',
-  '...DDDDDDDDDDDD...',
-  '..DDDDDDDDDDDDDD..',
-  '..DDDAADDDDAADDD..',
-  '..DDDDDDDDDDDDDD..',
+  '.....SSSSSSSS.....',
+  '..JJJJNNNNNNJJJJ..',
+  '.JJJJJJJJJJJJJJJJ.',
+  'JJJJJJJJJJJJJJJJJJ',
+  'JJJJJJJNNNNJJJJJJJ',
 ];
 const HS_W = 18;
 const HS_H = 18;
+const HAIR = ['#1b1712', '#2b2320', '#3a2a1a', '#5a3a22', '#7a5a34', '#0e0e12', '#6b6b70'];
 
 const hsCache = new Map<string, HTMLCanvasElement>();
 
 /**
- * Render (and cache) a front-facing helmet bust portrait in the team's colors,
- * framed on a subtle gradient card — an 8-bit "headshot" for menus.
+ * Render (and cache) a front-facing bareheaded roster portrait in the team's
+ * jersey colors, framed on a subtle gradient card — an 8-bit "headshot".
  */
-export function getHeadshot(scheme: SpriteScheme, px: number): HTMLCanvasElement {
-  const key = `${scheme.primary}|${scheme.secondary}|${scheme.skin}|${px}`;
+export function getHeadshot(scheme: SpriteScheme, px: number, hair = HAIR[1]): HTMLCanvasElement {
+  const key = `${scheme.primary}|${scheme.secondary}|${scheme.skin}|${hair}|${px}`;
   const hit = hsCache.get(key);
   if (hit) return hit;
 
@@ -422,14 +423,14 @@ export function getHeadshot(scheme: SpriteScheme, px: number): HTMLCanvasElement
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const colors: Record<string, string> = {
-    H: scheme.primary,
-    G: scheme.secondary,
-    F: '#c9cedb',
+    R: hair,
     S: scheme.skin,
     E: '#20222f',
-    D: shade(scheme.primary, 22),
-    A: shade(scheme.primary, -34),
+    M: shade(scheme.skin, -40),
+    J: scheme.primary,
+    N: scheme.secondary,
   };
+  const flat = 'EM'; // don't rim-shade eyes/mouth
   const rows = HEADSHOT;
   const filled = (x: number, y: number): string | null => {
     if (x < 0 || y < 0 || x >= HS_W || y >= HS_H) return null;
@@ -451,18 +452,21 @@ export function getHeadshot(scheme: SpriteScheme, px: number): HTMLCanvasElement
       let color = colors[c] ?? '#fff';
       const lit = !filled(x, y - 1);
       const shadowed = !filled(x + 1, y) || !filled(x, y + 1);
-      if (lit && c !== 'F' && c !== 'E') color = color.startsWith('rgb(') ? shadeRgb(color, 28) : shade(color, 28);
-      else if (shadowed && c !== 'F' && c !== 'E') color = color.startsWith('rgb(') ? shadeRgb(color, -24) : shade(color, -24);
+      if (!flat.includes(c)) {
+        if (lit) color = color.startsWith('rgb(') ? shadeRgb(color, 26) : shade(color, 26);
+        else if (shadowed) color = color.startsWith('rgb(') ? shadeRgb(color, -22) : shade(color, -22);
+      }
       ctx.fillStyle = color;
       ctx.fillRect(dx, dy, px, px);
-      if (c === 'H' && y <= 2) {
-        ctx.fillStyle = 'rgba(255,255,255,0.28)';
-        ctx.fillRect(dx, dy, px, Math.max(1, px / 3));
-      }
     }
   }
   hsCache.set(key, canvas);
   return canvas;
+}
+
+/** Deterministic hair color for a player id (variety across a roster). */
+export function hairFor(playerId: number): string {
+  return HAIR[playerId % HAIR.length];
 }
 
 export const HEADSHOT_GRID = { w: HS_W + 2, h: HS_H + 2 };

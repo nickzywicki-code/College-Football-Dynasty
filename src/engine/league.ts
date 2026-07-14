@@ -4,6 +4,7 @@ import { Rand } from './rng';
 import { TEAM_IDENTITIES } from './names';
 import { generatePlayer, marketSalary, setJerseyScratch, computeOverall } from './player';
 import { generateSchedule } from './schedule';
+import { newCoachStaff } from './franchise/coaches';
 import type { DepthChart, League, Player, Position, Team } from './types';
 import { SALARY_CAP, SCHEMA_VERSION, playerName } from './types';
 
@@ -72,6 +73,8 @@ function teamQualityCurve(r: Rand): number {
 
 export function generateLeague(seed: number, userTeamId: number): League {
   const r = new Rand(seed);
+  // separate stream for coaches so player generation stays byte-for-byte stable
+  const coachR = new Rand(seed + 4242);
   const players: Record<number, Player> = {};
   let nextPlayerId = 1;
 
@@ -92,6 +95,7 @@ export function generateLeague(seed: number, userTeamId: number): League {
     ptsAgainst: 0,
     history: [],
     draftPicks: [],
+    coaches: newCoachStaff(coachR),
   }));
 
   for (const team of teams) {

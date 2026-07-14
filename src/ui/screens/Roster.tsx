@@ -45,6 +45,9 @@ export function Roster() {
           <button className="btn secondary small" onClick={() => navigate('trade')}>
             🔁 Trade Center
           </button>
+          <button className="btn secondary small" onClick={() => navigate('coaches')}>
+            🎓 Coaching Staff
+          </button>
         </div>
         <div className="cardgrid">
         {GROUPS[filter].map((pos) => {

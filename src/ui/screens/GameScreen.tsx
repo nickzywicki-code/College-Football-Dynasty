@@ -5,6 +5,7 @@ import { useLeague, useStore } from '../../store/store';
 import { ArcadeGame, HudState } from '../../game/arcade';
 import { Camera, render, updateCamera } from '../../game/render';
 import { DEF_CALLS, OFFENSIVE_PLAYS } from '../../game/playbook';
+import { unlockedPlayIds, unlockedDefCalls } from '../../engine/franchise/coaches';
 import { PlayArt } from '../PlayArt';
 import { applyGameResult } from '../../engine/sim/seasonSim';
 
@@ -147,6 +148,11 @@ export function GameScreen() {
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
+  // playbook / scheme availability from the user's coordinators' levels
+  const userTeam = league.teams[league.userTeamId];
+  const openPlays = unlockedPlayIds(userTeam.coaches?.oc.level ?? 1);
+  const openDef = unlockedDefCalls(userTeam.coaches?.dc.level ?? 1);
+
   return (
     <div className="screen no-pad">
       <div className="gamewrap" ref={wrapRef}>
@@ -212,7 +218,7 @@ export function GameScreen() {
             )}
             <h3>Runs</h3>
             <div className="playgrid">
-              {OFFENSIVE_PLAYS.filter((p) => p.type === 'run').map((p) => (
+              {OFFENSIVE_PLAYS.filter((p) => p.type === 'run' && openPlays.has(p.id)).map((p) => (
                 <button key={p.id} onClick={() => engine.callPlay(p)}>
                   <div className="pname">{p.name}</div>
                   <div className="pdesc">{p.desc}</div>
@@ -222,7 +228,7 @@ export function GameScreen() {
             </div>
             <h3>Passes</h3>
             <div className="playgrid">
-              {OFFENSIVE_PLAYS.filter((p) => p.type === 'pass').map((p) => (
+              {OFFENSIVE_PLAYS.filter((p) => p.type === 'pass' && openPlays.has(p.id)).map((p) => (
                 <button key={p.id} onClick={() => engine.callPlay(p)}>
                   <div className="pname">{p.name}</div>
                   <div className="pdesc">{p.desc}</div>
@@ -259,7 +265,7 @@ export function GameScreen() {
             )}
             <h3>Call Your Defense</h3>
             <div className="playgrid">
-              {DEF_CALLS.map((d) => (
+              {DEF_CALLS.filter((d) => openDef.has(d.id)).map((d) => (
                 <button key={d.id} onClick={() => engine.callDefense(d.id)}>
                   <div className="pname">{d.name}</div>
                   <div className="pdesc">{d.desc}</div>

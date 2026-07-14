@@ -721,7 +721,7 @@ export class ArcadeGame {
     this.scrambling = false;
     this.playElapsed = 0;
     this.jukeCooldown = 0;
-    this.handoffTimer = play.type === 'run' ? 0.55 : -1;
+    this.handoffTimer = play.type === 'run' ? 0.42 : -1;
   }
 
   snap(): void {
@@ -901,6 +901,14 @@ export class ArcadeGame {
       if (this.handoffTimer <= 0) {
         const rb = this.ents.find((e) => e.role === 'RB')!;
         this.carrier = rb;
+        // downhill burst toward the aiming point so the back hits the hole
+        // with momentum instead of accelerating from a standstill into traffic
+        if (rb.body && this.phys && this.play?.runPoint) {
+          const aimX = clamp(FIELD_W / 2 + this.play.runPoint.x, 2, FIELD_W - 2);
+          const dx = aimX - rb.x;
+          const dl = Math.hypot(dx, 6) || 1;
+          this.phys.impulse(rb.body, (dx / dl) * 4, (6 / dl) * 9);
+        }
       }
     }
 
@@ -917,6 +925,13 @@ export class ArcadeGame {
   /** Advance matter-js and copy body state back onto entities. */
   private stepPhysics(dt: number): void {
     if (!this.phys) return;
+    // occupied (engaged) players become "blocked" so the ball carrier slips
+    // through the pile instead of getting stuck behind his own line
+    for (const e of this.ents) {
+      if (!e.body) continue;
+      this.phys.setBlocked(e.body, e.engagedWith != null && e !== this.carrier);
+      this.phys.setPhasing(e.body, e === this.carrier);
+    }
     this.phys.step(dt);
     for (const e of this.ents) {
       if (!e.body) continue;
@@ -970,7 +985,35 @@ export class ArcadeGame {
       if (e.side !== 'off') continue;
       if (e === this.carrier) {
         // user steers the carrier through physics (momentum + collisions real)
-        const mag = Math.hypot(this.stick.x, this.stick.y);
+        let sx = this.stick.x;
+        let sy = this.stick.y;
+        // RUN ASSIST: for the first beat after the handoff, bias the back toward
+        // the designed hole and away from the nearest defender so he finds the
+        // crease instead of running into his own line.
+        if (
+          play.type === 'run' &&
+          e.role === 'RB' &&
+          e.y < this.losY + 2 &&
+          this.playElapsed < 1.5
+        ) {
+          const holeX = clamp(FIELD_W / 2 + (play.runPoint?.x ?? 0), 2.5, FIELD_W - 2.5);
+          let toX = (holeX - e.x) * 0.4;
+          let toY = 1;
+          // dodge the closest defender in front
+          let near: Ent | null = null;
+          let nd = 3.5;
+          for (const o of this.ents) {
+            if (o.side !== 'def' || o.engagedWith || o.y < e.y) continue;
+            const dd = Math.hypot(o.x - e.x, o.y - e.y);
+            if (dd < nd) { nd = dd; near = o; }
+          }
+          if (near) toX += (e.x - near.x) * 0.5;
+          const tl = Math.hypot(toX, toY) || 1;
+          const assist = 0.55;
+          sx = sx * (1 - assist) + (toX / tl) * assist;
+          sy = sy * (1 - assist) + (toY / tl) * assist;
+        }
+        const mag = Math.hypot(sx, sy);
         if (e.body && this.phys) {
           if (mag > 0.08) {
             const sp = speedOf(e.player);
@@ -979,8 +1022,8 @@ export class ArcadeGame {
             const throttle = Math.min(1, Math.pow(Math.min(1, mag), 0.5));
             this.phys.drive(
               e.body,
-              (this.stick.x / mag) * sp * throttle,
-              (this.stick.y / mag) * sp * throttle,
+              (sx / mag) * sp * throttle,
+              (sy / mag) * sp * throttle,
               acc,
               dt,
             );
@@ -1030,17 +1073,24 @@ export class ArcadeGame {
     if (e.engagedWith && e.engagedWith.stunTimer <= 0 && e.engageTimer > 0) {
       e.engageTimer -= dt;
       const d = e.engagedWith;
-      // drive into the defender, angled to wall him away from the protectee
-      const protectee = this.carrier ?? this.qbEnt!;
-      const awayX = d.x - protectee.x;
-      const awayY = d.y - protectee.y;
-      const al = Math.hypot(awayX, awayY) || 1;
       // block leverage: blk vs str decides how hard the blocker drives.
-      // On runs a winning OL genuinely displaces the DL to open a lane.
       const edge = (e.player.attrs.blk - d.player.attrs.str) * (isRun ? 0.016 : 0.009);
-      const drivePow = (isRun ? 0.9 : 0.5) + edge;
-      const push = isRun ? 1.8 : 0.8;
-      this.moveToward(e, d.x + (awayX / al) * push, d.y + (awayY / al) * push, dt, clamp(drivePow, 0.2, 1.05));
+      const drivePow = (isRun ? 0.95 : 0.5) + edge;
+      if (isRun) {
+        // RUN blocking: drive the defender laterally OUT of the aiming gap so a
+        // real lane opens, plus a little downfield push — instead of shoving him
+        // into the back's path.
+        const holeX = clamp(FIELD_W / 2 + (this.play?.runPoint?.x ?? 0), 2.5, FIELD_W - 2.5);
+        const lateral = d.x < holeX ? -1 : 1; // wall him to his own side of the hole
+        this.moveToward(e, d.x + lateral * 2.2, d.y + 1.1, dt, clamp(drivePow, 0.25, 1.1));
+      } else {
+        // PASS pro: wall the rusher away from the QB
+        const protectee = this.carrier ?? this.qbEnt!;
+        const awayX = d.x - protectee.x;
+        const awayY = d.y - protectee.y;
+        const al = Math.hypot(awayX, awayY) || 1;
+        this.moveToward(e, d.x + (awayX / al) * 0.8, d.y + (awayY / al) * 0.8, dt, clamp(drivePow, 0.2, 1.05));
+      }
       if (e.engageTimer <= 0 && this.phys && d.body) {
         // rusher WINS the rep: sheds with a burst to the ball and the blocker
         // can't re-grab him for a beat — this is how pressure gets home
@@ -1075,7 +1125,10 @@ export class ArcadeGame {
         nearest = d;
       }
     }
-    if (nearest && Math.hypot(nearest.x - e.x, nearest.y - e.y) < 1.2 && !e.engagedWith) {
+    // lock up sooner on runs so DL get walled at the line instead of shooting
+    // into the backfield before an OL can reach them
+    const engageRange = isRun ? 2.0 : 1.2;
+    if (nearest && Math.hypot(nearest.x - e.x, nearest.y - e.y) < engageRange && !e.engagedWith) {
       // hold time from blk vs str; the pocket decays as the play ages so no
       // one blocks forever — a QB who holds the ball WILL eventually get hit
       const pocketDecay = this.play?.type === 'pass' ? this.playElapsed * 0.16 : 0;
@@ -1086,8 +1139,9 @@ export class ArcadeGame {
       );
       e.engagedWith = nearest;
       nearest.engagedWith = e;
-      // run blocks sustain longer so a crease actually opens
-      e.engageTimer = isRun ? hold + 0.6 : hold;
+      // run blocks sustain much longer so the crease stays open until the back
+      // clears the line (a lost rep still eventually sheds via pursuit logic)
+      e.engageTimer = isRun ? Math.max(1.6, hold + 1.1) : hold;
       this.spawnDust((e.x + nearest.x) / 2, (e.y + nearest.y) / 2, 3);
       // pad-pop on the initial hit, throttled so the line isn't a machine gun
       if (this.playElapsed - this.lastBlockSfx > 0.11) {
@@ -1116,8 +1170,10 @@ export class ArcadeGame {
       }
       if (e.engagedWith) {
         const t = this.carrier ?? this.qbEnt!;
-        // carrier already ran past this battle: rip off the block and chase
-        if (this.carrier && this.carrier !== this.qbEnt && Math.abs(this.carrier.y - e.y) > 2.5) {
+        // carrier has run DOWNFIELD past this battle: rip off and give chase.
+        // (Only when the ball is past the defender — not when the back is still
+        // in the backfield behind the line, which was stuffing every run.)
+        if (this.carrier && this.carrier !== this.qbEnt && this.carrier.y - e.y > 2.5) {
           e.engagedWith.engagedWith = null;
           e.engagedWith = null;
           continue;
@@ -1126,8 +1182,8 @@ export class ArcadeGame {
         // On runs an engaged lineman gets walled and barely penetrates, so the
         // hole stays open — he only wins if he badly out-strengths the blocker.
         const isRunNow = this.play?.type === 'run';
-        const bull = 0.14 + Math.max(0, e.player.attrs.str - e.engagedWith.player.attrs.blk) * 0.004;
-        this.moveToward(e, t.x, t.y, dt, clamp(bull, isRunNow ? 0.06 : 0.1, isRunNow ? 0.32 : 0.5));
+        const bull = 0.12 + Math.max(0, e.player.attrs.str - e.engagedWith.player.attrs.blk) * 0.004;
+        this.moveToward(e, t.x, t.y, dt, clamp(bull, isRunNow ? 0.03 : 0.1, isRunNow ? 0.22 : 0.5));
         if (e.engagedWith.engagedWith !== e || e.engagedWith.engageTimer <= 0) e.engagedWith = null;
         continue;
       }
@@ -1147,6 +1203,27 @@ export class ArcadeGame {
           this.moveToward(e, qb.x, Math.min(this.losY + 1.5, qb.y + 3), dt, 0.85);
         }
         continue;
+      }
+
+      // COVERAGE PLASTER: on a QB scramble/rollout the ball is still a pass
+      // threat, so man/zone coverage defenders STAY with their receiver instead
+      // of all running up at the QB (which left receivers wide open). They only
+      // trigger up once the QB is a committed runner deep past the line or gets
+      // close to them.
+      const qb = this.qbEnt;
+      const qbScramble = !!qb && carrier === qb && this.scrambling && !this.passThrown;
+      if (qbScramble && qb && (e.assignRole || e.zone)) {
+        const committed = qb.y > this.losY + 6;
+        const near = Math.hypot(qb.x - e.x, qb.y - e.y) < 3.5;
+        if (!committed && !near && ballLive) {
+          if (e.assignRole) {
+            const assign = this.ents.find((x) => x.side === 'off' && x.role === e.assignRole);
+            if (assign) { this.coverTarget(e, assign, dt); continue; }
+          } else if (e.zone) {
+            this.moveToward(e, e.zone.x, e.zone.y, dt, 0.8);
+            continue;
+          }
+        }
       }
 
       // ball carrier pursuit dominates everything once ball is committed
@@ -1402,8 +1479,12 @@ export class ArcadeGame {
         const isSack = c === this.qbEnt && !this.passThrown && !this.scrambling && this.play?.type === 'pass';
         // closing speed feeds the tackle: full-speed hits stick more often
         const closing = Math.hypot(e.vx - c.vx, e.vy - c.vy);
-        const breakP = tackleBreakProbability(c.player, e.player) * (isSack ? 0.3 : 1) * clamp(1.25 - closing * 0.05, 0.5, 1.25);
-        if (this.r.chance(clamp(breakP, 0.03, 0.55))) {
+        // a back hit behind the line more often bounces off the first man so a
+        // single penetrator doesn't blow up every run for a loss
+        const behindLine =
+          this.play?.type === 'run' && c !== this.qbEnt && c.y < this.losY + 1 ? 1.9 : 1;
+        const breakP = tackleBreakProbability(c.player, e.player) * (isSack ? 0.3 : 1) * behindLine * clamp(1.25 - closing * 0.05, 0.5, 1.25);
+        if (this.r.chance(clamp(breakP, 0.03, behindLine > 1 ? 0.75 : 0.55))) {
           // broken tackle: defender bounces off and eats turf
           e.stunTimer = 0.8;
           e.lungeT = 0.5;
