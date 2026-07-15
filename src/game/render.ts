@@ -7,6 +7,7 @@
 import type { ArcadeGame, Ent } from './arcade';
 import { FIELD_LEN, FIELD_W } from './arcade';
 import { getSprite, runBob, runPose, skinFor, Pose, SPRITE_GRID } from './sprites';
+import { getPlayerFrame, playersReady } from './realPlayers';
 import { BALL_SPRITE } from './ballSheet';
 
 // Hand-drawn football, preloaded once; getBallTex swaps to it when it decodes.
@@ -532,7 +533,11 @@ function drawEnt(ctx: CanvasRenderingContext2D, game: ArcadeGame, cam: Camera, e
   else if (speed > 0.6) pose = runPose(e.animPhase + e.player.id * 0.29);
   else pose = 'idle';
 
-  const sprite = getSprite(scheme, pose, px);
+  // Prefer the generated hand-drawn animation frame when a sheet is present;
+  // otherwise use the procedural sprite (default until art is dropped in).
+  const sprite =
+    (playersReady() && getPlayerFrame(pose, e.player.id, scheme.primary, scheme.secondary, px)) ||
+    getSprite(scheme, pose, px);
   // facing: only commit a new direction when clearly moving, so idle players
   // don't rapidly flip (spin) on tiny physics jitter
   if (Math.abs(e.vy) > 1.2) e.faceRight = e.vy > 0;

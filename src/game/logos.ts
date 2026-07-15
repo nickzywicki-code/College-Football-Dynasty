@@ -6,9 +6,41 @@
 // getTeamLogo() renders once to an offscreen canvas and caches by abbr+size.
 
 import type { Team } from '../engine/types';
+import { LOGO_SHEET, LOGO_ABBRS, LOGO_COLS, LOGO_CW, LOGO_CH } from './logoSheet';
 
 /** Minimal identity a crest needs — satisfied by both Team and TeamIdentity. */
 export type LogoTeam = Pick<Team, 'abbr' | 'colors' | 'name'>;
+
+// --- generated hand-drawn logo sheet (optional) -----------------------------
+const logoActive = LOGO_SHEET.length > 0 && LOGO_ABBRS.length > 0;
+let logoImg: HTMLImageElement | null = null;
+let logoReady = false;
+if (logoActive && typeof Image !== 'undefined') {
+  logoImg = new Image();
+  logoImg.onload = () => { logoReady = true; };
+  logoImg.src = LOGO_SHEET;
+}
+
+/** Draw team `abbr`'s hand-drawn logo scaled to `size`, or null if unavailable. */
+function getDrawnLogo(abbr: string, size: number): HTMLCanvasElement | null {
+  if (!logoReady || !logoImg) return null;
+  const idx = LOGO_ABBRS.indexOf(abbr);
+  if (idx < 0) return null;
+  const col = idx % LOGO_COLS;
+  const row = Math.floor(idx / LOGO_COLS);
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const g = c.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  // fit the cell into the square, preserving aspect and centering
+  const s = Math.min(size / LOGO_CW, size / LOGO_CH);
+  const w = Math.round(LOGO_CW * s);
+  const h = Math.round(LOGO_CH * s);
+  g.drawImage(logoImg, col * LOGO_CW, row * LOGO_CH, LOGO_CW, LOGO_CH,
+    Math.round((size - w) / 2), Math.round((size - h) / 2), w, h);
+  return c;
+}
 
 // --- tiny 3x5 pixel font (uppercase A-Z, 0-9) -------------------------------
 // Each glyph is 5 rows of 3 chars; '#' = pixel on.
@@ -263,6 +295,13 @@ export function getTeamLogo(team: LogoTeam, size: number): HTMLCanvasElement {
   const key = `${team.abbr}|${team.colors[0]}|${team.colors[1]}|${size}`;
   const hit = cache.get(key);
   if (hit) return hit;
+
+  // Prefer the generated hand-drawn logo for this team when a sheet is present.
+  const drawn = getDrawnLogo(team.abbr, size);
+  if (drawn) {
+    cache.set(key, drawn);
+    return drawn;
+  }
 
   // work on a 24x24 pixel grid, then scale to `size` crisply
   const G = 24;
