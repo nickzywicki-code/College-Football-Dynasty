@@ -956,8 +956,12 @@ h1.pixel,
 .recv-btns {
   position: absolute;
   bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  left: calc(14px + env(safe-area-inset-left, 0px));
+  right: calc(14px + env(safe-area-inset-right, 0px));
   display: flex;
+  flex-direction: column-reverse;
+  flex-wrap: wrap;
+  align-content: flex-end;
+  max-height: 78%;
   gap: 10px;
   z-index: 4;
 }
@@ -980,6 +984,43 @@ h1.pixel,
 .recv-btns button:active {
   transform: translateY(4px);
   box-shadow: 0 1px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* ---- on-screen movement joystick (bottom-left) ---- */
+.joystick {
+  position: absolute;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, rgba(40, 46, 74, 0.62), rgba(10, 12, 20, 0.62));
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.55), 0 4px 0 rgba(0, 0, 0, 0.4);
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  touch-action: none;
+}
+
+.joystick::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, transparent 0 22px, rgba(255, 255, 255, 0.05) 22px 23px);
+  pointer-events: none;
+}
+
+.joystick-thumb {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #6b74a8, #2b3050);
+  border: 3px solid rgba(10, 12, 20, 0.9);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.5), inset 0 3px 0 rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+  will-change: transform;
 }
 
 .kickmeter {

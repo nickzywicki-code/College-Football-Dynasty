@@ -19,6 +19,8 @@ export function GameScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<ArcadeGame | null>(null);
+  const joyRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
   const [hud, setHud] = useState<HudState | null>(null);
   const [confirmSim, setConfirmSim] = useState(false);
   const appliedRef = useRef(false);
@@ -66,9 +68,7 @@ export function GameScreen() {
     };
     raf = requestAnimationFrame(loop);
 
-    // joystick: any touch drag on the canvas steers the carrier
-    let touchStart: { x: number; y: number } | null = null;
-    // tap on a floating receiver icon → throw to that receiver
+    // tap on a floating receiver icon (above a receiver's head) → throw to him
     const tryIconTap = (clientX: number, clientY: number): boolean => {
       const rect = canvas.getBoundingClientRect();
       const cx = clientX - rect.left;
@@ -84,47 +84,64 @@ export function GameScreen() {
       }
       return false;
     };
-    const onStart = (e: TouchEvent | MouseEvent) => {
+    const onCanvasTap = (e: TouchEvent | MouseEvent) => {
       const pt = 'touches' in e ? e.touches[0] : e;
-      // a tap on a receiver icon throws immediately and does not start a drag
-      if (tryIconTap(pt.clientX, pt.clientY)) {
-        touchStart = null;
-        return;
-      }
-      touchStart = { x: pt.clientX, y: pt.clientY };
+      tryIconTap(pt.clientX, pt.clientY);
     };
-    const onMove = (e: TouchEvent | MouseEvent) => {
-      if (!touchStart) return;
-      const pt = 'touches' in e ? e.touches[0] : e;
-      // landscape mapping: drag right = downfield (+engine.y),
-      // drag down-screen = toward the bottom sideline (+engine.x)
-      const lenDir = (pt.clientX - touchStart.x) / 40;
-      const widDir = (pt.clientY - touchStart.y) / 40;
-      const mag = Math.hypot(lenDir, widDir);
-      const capped = Math.min(1, mag);
-      engine.setStick(mag > 0 ? (widDir / mag) * capped : 0, mag > 0 ? (lenDir / mag) * capped : 0);
-      if ('touches' in e) e.preventDefault();
+    canvas.addEventListener('touchstart', onCanvasTap, { passive: true });
+    canvas.addEventListener('mousedown', onCanvasTap);
+
+    // ---- visible on-screen joystick (bottom-left) ----
+    const joy = joyRef.current;
+    const thumb = thumbRef.current;
+    let joyId: number | null = null;
+    const R = 52; // joystick radius in px
+    const setThumb = (dx: number, dy: number) => {
+      if (thumb) thumb.style.transform = `translate(${dx}px, ${dy}px)`;
     };
-    const onEnd = () => {
-      touchStart = null;
+    const joyMove = (clientX: number, clientY: number) => {
+      if (!joy) return;
+      const rect = joy.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const mag = Math.hypot(dx, dy);
+      const capped = Math.min(1, mag / R);
+      if (mag > R) { dx = (dx / mag) * R; dy = (dy / mag) * R; }
+      setThumb(dx, dy);
+      // landscape mapping: right = downfield (engine.y); down = bottom sideline (engine.x)
+      const nx = mag > 0 ? (dx / mag) : 0;
+      const ny = mag > 0 ? (dy / mag) : 0;
+      engine.setStick(ny * capped, nx * capped);
+    };
+    const joyDown = (e: PointerEvent) => {
+      if (joyId !== null) return;
+      joyId = e.pointerId;
+      joy?.setPointerCapture(e.pointerId);
+      joyMove(e.clientX, e.clientY);
+      e.preventDefault();
+    };
+    const joyDrag = (e: PointerEvent) => { if (e.pointerId === joyId) joyMove(e.clientX, e.clientY); };
+    const joyUp = (e: PointerEvent) => {
+      if (e.pointerId !== joyId) return;
+      joyId = null;
+      setThumb(0, 0);
       engine.setStick(0, 0);
     };
-    const el = canvas;
-    el.addEventListener('touchstart', onStart, { passive: true });
-    el.addEventListener('touchmove', onMove, { passive: false });
-    el.addEventListener('touchend', onEnd);
-    el.addEventListener('mousedown', onStart);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onEnd);
+    joy?.addEventListener('pointerdown', joyDown);
+    joy?.addEventListener('pointermove', joyDrag);
+    joy?.addEventListener('pointerup', joyUp);
+    joy?.addEventListener('pointercancel', joyUp);
 
     return () => {
       cancelAnimationFrame(raf);
-      el.removeEventListener('touchstart', onStart);
-      el.removeEventListener('touchmove', onMove);
-      el.removeEventListener('touchend', onEnd);
-      el.removeEventListener('mousedown', onStart);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onEnd);
+      canvas.removeEventListener('touchstart', onCanvasTap);
+      canvas.removeEventListener('mousedown', onCanvasTap);
+      joy?.removeEventListener('pointerdown', joyDown);
+      joy?.removeEventListener('pointermove', joyDrag);
+      joy?.removeEventListener('pointerup', joyUp);
+      joy?.removeEventListener('pointercancel', joyUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
@@ -157,6 +174,16 @@ export function GameScreen() {
     <div className="screen no-pad">
       <div className="gamewrap" ref={wrapRef}>
         <canvas ref={canvasRef} />
+
+        {/* movement joystick (bottom-left) — always mounted so its ref exists;
+            only interactive/visible while you control a live ball carrier */}
+        <div
+          ref={joyRef}
+          className="joystick"
+          style={{ display: hud?.phase === 'live' ? 'flex' : 'none' }}
+        >
+          <div ref={thumbRef} className="joystick-thumb" />
+        </div>
 
         {hud && (
           <div className="scorebug">

@@ -426,11 +426,15 @@ export function render(
   }
 
   // ball
-  if (game.phase === 'live' || game.phase === 'presnap' || game.phase === 'playover') {
+  if (game.phase === 'live' || game.phase === 'presnap' || game.phase === 'playover' || game.phase === 'kickflight') {
     const bx = sx(cam, game.ball.y);
     let by = sy(cam, game.ball.x);
     let rot = 0;
-    if (game.ball.inFlight) {
+    if (game.phase === 'kickflight' && game.kickAnim) {
+      const t = Math.min(1, game.kickAnim.t / game.kickAnim.dur);
+      by -= Math.sin(t * Math.PI) * 6.5 * s; // tall kick arc
+      rot = t * Math.PI * 5; // end-over-end
+    } else if (game.ball.inFlight) {
       const t = Math.min(1, game.ball.flightT / game.ball.flightDur);
       by -= Math.sin(t * Math.PI) * 2.4 * s; // arc height
       rot = t * Math.PI * 3; // spiral spin
@@ -505,9 +509,10 @@ function drawEnt(ctx: CanvasRenderingContext2D, game: ArcadeGame, cam: Camera, e
   else pose = 'idle';
 
   const sprite = getSprite(scheme, pose, px);
-  // facing: offense faces +y (screen right); defense faces -y; moving entities face velocity
-  let faceRight = e.side === 'off';
-  if (Math.abs(e.vy) > 0.4) faceRight = e.vy > 0;
+  // facing: only commit a new direction when clearly moving, so idle players
+  // don't rapidly flip (spin) on tiny physics jitter
+  if (Math.abs(e.vy) > 1.2) e.faceRight = e.vy > 0;
+  const faceRight = e.faceRight;
 
   const cx = sx(cam, e.y);
   const cy = sy(cam, e.x);
