@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useLeague, useStore } from '../../store/store';
-import { Modal, PlayerHeadshot, RatingBar, TopBar, ovrClass } from '../components';
+import { Modal, PlayerHeadshot, PlayerBody, RatingBar, TopBar, ovrClass } from '../components';
 import type { AttrKey, Player, SeasonStats } from '../../engine/types';
 import { releasePlayer, askingPrice, offerAccepted, signPlayer, capRoom } from '../../engine/franchise/contracts';
 import { runtimeRng } from '../../store/store';
@@ -117,6 +117,11 @@ export function PlayerView() {
       <div className="screen">
         <div className="card">
           <div className="row">
+            <PlayerBody
+              player={p}
+              colors={team ? team.colors : ['#3a3f5a', '#8b93a8']}
+              height={116}
+            />
             <PlayerHeadshot
               player={p}
               colors={team ? team.colors : ['#3a3f5a', '#8b93a8']}
