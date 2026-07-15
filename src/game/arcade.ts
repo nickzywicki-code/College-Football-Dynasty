@@ -36,6 +36,7 @@ export type ArcadePhase =
   | 'live' // ball in play, user controls
   | 'playover' // result banner
   | 'kickmeter' // FG/punt/XP meter
+  | 'kickflight' // ball flying at the uprights / downfield
   | 'patchoice' // XP or 2pt after user TD
   | 'defcall' // user picks defensive shell before CPU drive
   | 'cpu' // CPU offense auto-resolving
@@ -76,6 +77,7 @@ export interface Ent {
   contain: boolean; // edge rusher keeping outside leverage on the QB
   spy: boolean; // QB spy: mirrors the QB, jumps a scramble
   readDelay: number; // second-level defender reads for a beat before filling
+  faceRight: boolean; // last committed facing (hysteresis to stop idle spinning)
 }
 
 export interface Particle {
@@ -202,6 +204,13 @@ export class ArcadeGame {
   releaseT = 0; // QB throw-release pose timer
   private postPlayTimer = 0;
   private afterPlay: (() => void) | null = null;
+  /** kick-in-flight visual: from/to field coords + progress */
+  kickAnim: {
+    kind: 'fg' | 'xp' | 'punt';
+    made: boolean;
+    fromX: number; fromY: number; toX: number; toY: number;
+    t: number; dur: number;
+  } | null = null;
   carrier: Ent | null = null;
   qbEnt: Ent | null = null;
   passThrown = false;
@@ -213,6 +222,8 @@ export class ArcadeGame {
   losY = 0; // absolute y of line of scrimmage during live play
   firstDownY = 0;
   scrambling = false;
+  carrierSince = 0; // playElapsed when the current carrier took the ball
+  twoPtLive = false; // user is running a live 2-point conversion play
   lastBlockSfx = -1; // throttle for pad-pop block SFX
   coverPress = false; // tighter coverage when the user spams one play
   /** recent user play outcomes, for defensive adjustments to repetition */
@@ -363,6 +374,15 @@ export class ArcadeGame {
   }
 
   private turnover(kind: string, spotYtgForNewOffense: number): void {
+    // a turnover on a 2-point try just ends the conversion (no return)
+    if (this.twoPtLive) {
+      this.twoPtLive = false;
+      this.offStats.totals.turnovers++;
+      this.setBanner('2-PT NO GOOD', '');
+      this.afterScoreKickoff();
+      this.pushHud();
+      return;
+    }
     audio.play(this.possession === 'user' ? 'turnover' : 'touchdown');
     this.offStats.totals.turnovers++;
     this.log(kind);
@@ -434,23 +454,15 @@ export class ArcadeGame {
     if (kind === 'xp') {
       this.startMeter('xp');
     } else {
-      const res = resolveSimPlay({
-        r: this.r,
-        offense: this.userP,
-        defense: this.cpuP,
-        yardsToGoal: 2,
-        toGo: 2,
-        call: this.r.chance(0.5) ? { type: 'run', direction: 'inside' } : { type: 'pass', depth: 'short' },
-        hurryUp: false,
-        defExpectsPass: 0.5,
-      });
-      if (res.yards >= 2 && !res.turnover) {
-        this.score('user', 2);
-        this.setBanner('2-PT GOOD!', '');
-      } else {
-        this.setBanner('2-PT FAILED', '');
-      }
-      this.afterScoreKickoff();
+      // play a REAL down from the 2 — pick a play and go for it
+      this.pendingPat = null;
+      this.twoPtLive = true;
+      this.possession = 'user';
+      this.down = 1;
+      this.toGo = 2;
+      this.yardsToGoal = 2;
+      this.phase = 'playcall';
+      this.setBanner('GO FOR TWO', 'Pick your play from the 2');
       this.pushHud();
     }
   }
@@ -468,65 +480,87 @@ export class ArcadeGame {
   kickNow(): void {
     if (!this.meter) return;
     const v = this.meter.value;
+    const center = (this.meter.zoneLo + this.meter.zoneHi) / 2;
     const inZone = v >= this.meter.zoneLo && v <= this.meter.zoneHi;
-    const off = Math.abs(v - (this.meter.zoneLo + this.meter.zoneHi) / 2);
+    const off = Math.abs(v - center);
     const kind = this.meter.kind;
     this.meter = null;
     audio.play('kick');
 
-    if (kind === 'xp') {
+    const midX = FIELD_W / 2;
+    const losY = 10 + (100 - this.yardsToGoal);
+    const hookDir = v < center ? -1 : 1;
+
+    if (kind === 'xp' || kind === 'fg') {
+      const dist = kind === 'xp' ? 20 : this.yardsToGoal + 17;
       const k = this.userP.K;
       const l = this.line(this.userStats, k);
-      this.bump(l, 'xpa');
-      const p = clamp(0.96 - off * 1.4 + (k.attrs.kck - 75) * 0.002, 0.2, 0.99);
-      if (this.r.chance(p)) {
-        this.bump(l, 'xpm');
-        this.score('user', 1);
-        this.setBanner('EXTRA POINT GOOD', '');
-      } else {
-        this.setBanner('XP MISSED!', '');
-      }
-      this.afterScoreKickoff();
-    } else if (kind === 'fg') {
-      const dist = this.yardsToGoal + 17;
-      const k = this.userP.K;
-      const l = this.line(this.userStats, k);
-      this.bump(l, 'fga');
-      let p = fgMakeProbability(k, dist);
-      p = clamp(p + (inZone ? 0.12 : -0.3) - off * 0.8, 0.02, 0.99);
-      this.chargeClock(6);
-      if (this.r.chance(p)) {
-        this.bump(l, 'fgm');
-        l.fgLong = Math.max(l.fgLong ?? 0, dist);
-        this.score('user', 3);
-        audio.play('fieldgoal');
-        this.log(`${k.lastName} drills the ${dist}-yard field goal!`);
-        this.setBanner('FIELD GOAL IS GOOD!', `${dist} yards`);
-        this.possession = 'cpu';
-        this.startDrive(75);
-      } else {
-        this.log(`${k.lastName} misses from ${dist}.`);
-        this.setBanner('NO GOOD', `${dist} yards`);
-        this.possession = 'cpu';
-        this.startDrive(Math.max(20, 100 - (this.yardsToGoal + 7)));
-      }
-      this.chargeClock(8);
+      this.bump(l, kind === 'xp' ? 'xpa' : 'fga');
+      let p = kind === 'xp'
+        ? clamp(0.96 - off * 1.4 + (k.attrs.kck - 75) * 0.002, 0.2, 0.99)
+        : clamp(fgMakeProbability(k, dist) + (inZone ? 0.12 : -0.3) - off * 0.8, 0.02, 0.99);
+      const made = this.r.chance(p);
+      // fly the ball at the uprights (back of the attacked end zone)
+      this.kickAnim = {
+        kind, made,
+        fromX: midX, fromY: losY - 7,
+        toX: made ? midX : clamp(midX + hookDir * 6, 2, FIELD_W - 2),
+        toY: 120, t: 0, dur: 1.35,
+      };
+      this.ball.inFlight = false;
+      this.ball.loose = false;
+      this.kickThen(1.5, () => {
+        if (kind === 'xp') {
+          if (made) { this.bump(l, 'xpm'); this.score('user', 1); this.setBanner('EXTRA POINT GOOD', ''); }
+          else this.setBanner('XP MISSED!', '');
+          this.afterScoreKickoff();
+        } else {
+          this.chargeClock(6);
+          if (made) {
+            this.bump(l, 'fgm');
+            l.fgLong = Math.max(l.fgLong ?? 0, dist);
+            this.score('user', 3);
+            audio.play('fieldgoal');
+            this.log(`${k.lastName} drills the ${dist}-yard field goal!`);
+            this.setBanner('FIELD GOAL IS GOOD!', `${dist} yards`);
+            this.possession = 'cpu';
+            this.startDrive(75);
+          } else {
+            this.log(`${k.lastName} misses from ${dist}.`);
+            this.setBanner('NO GOOD', `${dist} yards`);
+            this.possession = 'cpu';
+            this.startDrive(Math.max(20, 100 - (this.yardsToGoal + 7)));
+          }
+          this.chargeClock(8);
+        }
+        this.pushHud();
+      });
     } else {
-      // punt
-      const p = this.userP.P;
-      const l = this.line(this.userStats, p);
+      // punt — fly the ball downfield with a high arc
+      const punter = this.userP.P;
+      const l = this.line(this.userStats, punter);
       this.bump(l, 'punts');
       const power = clamp(v, 0.2, 1);
-      const gross = clamp(28 + power * 32 + (p.attrs.kck - 75) * 0.2, 20, 65);
+      const gross = clamp(28 + power * 32 + (punter.attrs.kck - 75) * 0.2, 20, 65);
       const returnYds = this.r.chance(0.5) ? Math.max(0, this.r.gauss(7, 6)) : 0;
       const net = Math.round(gross - returnYds);
       this.bump(l, 'puntYds', Math.round(gross));
       let newYtg = 100 - (this.yardsToGoal - net);
       if (newYtg >= 100) newYtg = 80;
-      this.log(`${p.lastName} punts ${Math.round(gross)} yards.`);
-      this.chargeClock(14);
-      this.possession = 'cpu';
-      this.startDrive(newYtg);
+      this.kickAnim = {
+        kind: 'punt', made: true,
+        fromX: midX, fromY: losY,
+        toX: clamp(midX + this.r.range(-4, 4), 3, FIELD_W - 3),
+        toY: Math.min(118, losY + gross), t: 0, dur: 1.3,
+      };
+      this.kickThen(1.4, () => {
+        this.log(`${punter.lastName} punts ${Math.round(gross)} yards.`);
+        this.setBanner('PUNT', `${Math.round(gross)} yards`);
+        this.chargeClock(14);
+        this.possession = 'cpu';
+        this.startDrive(newYtg);
+        this.pushHud();
+      });
     }
     this.pushHud();
   }
@@ -674,7 +708,7 @@ export class ArcadeGame {
         body: null, lungeT: 0, celebT: 0, animPhase: 0, diveCd: 0, diving: false,
         rusher: false, wonBlock: false, beatBy: null, beatT: 0,
         assignRole: null, zone: null, beatenT: 0, beatenIdx: -1,
-        contain: false, spy: false, readDelay: 0,
+        contain: false, spy: false, readDelay: 0, faceRight: side === 'off',
       });
     };
     const addOff = (p: Player, role: string, rel: RoutePoint) => addEnt(p, 'off', role, rel);
@@ -729,6 +763,7 @@ export class ArcadeGame {
     audio.play('snap');
     this.phase = 'live';
     this.carrier = this.qbEnt;
+    this.carrierSince = this.playElapsed;
     // QB sneak: QB is instantly the runner
     if (this.play?.id === 'qbsneak') this.handoffTimer = -1;
     this.pushHud();
@@ -843,6 +878,14 @@ export class ArcadeGame {
     this.pushHud();
   }
 
+  /** Play a kick-flight animation, then run the resolution. */
+  private kickThen(duration: number, fn: () => void): void {
+    this.phase = 'kickflight';
+    this.postPlayTimer = duration;
+    this.afterPlay = fn;
+    this.pushHud();
+  }
+
   // ---------------------------------------------------------------------
   // live play tick
   // ---------------------------------------------------------------------
@@ -889,6 +932,26 @@ export class ArcadeGame {
       this.pushHud();
       return;
     }
+    // kick in flight: advance the ball toward the uprights / downfield
+    if (this.phase === 'kickflight') {
+      if (this.kickAnim) {
+        this.kickAnim.t += dt;
+        const a = this.kickAnim;
+        const p = Math.min(1, a.t / a.dur);
+        this.ball.x = a.fromX + (a.toX - a.fromX) * p;
+        this.ball.y = a.fromY + (a.toY - a.fromY) * p;
+      }
+      this.updateFx(dt);
+      this.postPlayTimer -= dt;
+      if (this.postPlayTimer <= 0 && this.afterPlay) {
+        const fn = this.afterPlay;
+        this.afterPlay = null;
+        this.kickAnim = null;
+        fn();
+      }
+      this.pushHud();
+      return;
+    }
     if (this.phase !== 'live') return;
 
     this.playElapsed += dt;
@@ -908,6 +971,7 @@ export class ArcadeGame {
       if (this.handoffTimer <= 0) {
         const rb = this.ents.find((e) => e.role === 'RB')!;
         this.carrier = rb;
+        this.carrierSince = this.playElapsed;
         // downhill burst toward the aiming point so the back hits the hole
         // with momentum instead of accelerating from a standstill into traffic
         if (rb.body && this.phys && this.play?.runPoint) {
@@ -987,27 +1051,26 @@ export class ArcadeGame {
   }
 
   /**
-   * Ball-carrier speed edge by field zone. Behind / at the line the offense is a
-   * touch faster so you can actually hit a hole, get the edge, or buy time to
-   * throw. Once you break into the open field that edge fades and the defense
-   * takes over — so plays don't house every time.
+   * Ball-carrier speed edge — a short BURST right after taking the ball so you
+   * can hit the hole or beat a man to the edge, then it fades. It is time-based
+   * (not depth-based) so an outside run can't just keep the boost all the way to
+   * the sideline.
    */
   private offSpeedMult(e: Ent): number {
     if (e !== this.carrier) return 1;
-    const past = e.y - this.losY;
-    if (past <= 3) return 1.1; // behind the line: offense wins the first step
-    return clamp(1.08 - (past - 3) * 0.02, 0.95, 1.08); // fades downfield
+    const carry = this.playElapsed - this.carrierSince;
+    return carry < 0.75 ? 1.08 : 1.0; // burst window, then normal speed
   }
 
   /**
-   * Pursuit-speed edge for a defender chasing the carrier. Mirror of the above:
-   * slower behind the line (let the play develop), faster in the open field so
-   * a scramble or a bounced-outside run gets run down instead of scoring.
+   * Defender pursuit-speed edge that RAMPS with how long the play has been
+   * live. Early on the defense is a hair slow (let the play develop / blocks
+   * matter); once you're in space it outpaces you, so scrambles and bounced
+   * edge runs get run down instead of housing it every time.
    */
-  private defPursuitMult(carrier: Ent): number {
-    const past = carrier.y - this.losY;
-    if (past <= 3) return 0.9; // behind the line: don't swarm instantly
-    return clamp(1.0 + (past - 3) * 0.02, 1.0, 1.18); // ramps up downfield
+  private defPursuitMult(_carrier: Ent): number {
+    const ramp = clamp(this.playElapsed - 0.7, 0, 1.4);
+    return clamp(0.9 + ramp * 0.19, 0.9, 1.17); // 0.9 → ~1.17 over ~1.4s
   }
 
   private updateOffense(dt: number): void {
@@ -1091,9 +1154,36 @@ export class ArcadeGame {
         this.moveToward(e, wp.x, wp.y, dt);
         continue;
       }
-      if (play.type === 'run' && this.carrier && this.carrier !== e && !e.role.startsWith('OL')) {
-        // downfield blockers drift with the carrier
-        this.updateBlocker(e, dt);
+      if (this.carrier && this.carrier !== e && !e.role.startsWith('OL')) {
+        // Downfield blocking (runs, and after a catch): find the nearest
+        // defender between the carrier and the end zone and go wall him; if
+        // none is close, lead the carrier upfield instead of standing still.
+        const c = this.carrier;
+        let target: Ent | null = null;
+        let bestD = 9;
+        for (const d of this.ents) {
+          if (d.side !== 'def' || d.stunTimer > 0 || d.engagedWith) continue;
+          if (d.y < c.y - 1) continue; // only defenders in front of the ball
+          const dist = Math.hypot(d.x - c.x, d.y - c.y);
+          if (dist < bestD) { bestD = dist; target = d; }
+        }
+        if (target) {
+          // get between the defender and the carrier and shove him away
+          const bx = target.x + (target.x - c.x) * 0.15;
+          this.moveToward(e, bx, target.y, dt, 0.95);
+          if (Math.hypot(target.x - e.x, target.y - e.y) < 1.2 && !e.engagedWith && target.engagedWith == null) {
+            e.engagedWith = target;
+            target.engagedWith = e;
+            e.engageTimer = 0.7;
+          }
+        } else {
+          // lead upfield, staying just ahead of and beside the carrier
+          this.moveToward(e, c.x + (e.x < c.x ? -1.5 : 1.5), c.y + 4, dt, 0.9);
+        }
+      } else if (e !== this.carrier && e.route.length === 0 && !e.role.startsWith('OL')) {
+        // idle skill player with no job (e.g. a route already run out): settle
+        // toward open space near the QB instead of jittering in place
+        this.moveToward(e, e.x, this.losY + 10, dt, 0.4);
       }
     }
   }
@@ -1309,6 +1399,33 @@ export class ArcadeGame {
         continue;
       }
 
+      // BALL IN FLIGHT: break on the throw. The defender nearest the catch
+      // point drives to contest it; everyone else stays TIGHT to their man
+      // instead of drifting back toward the QB (which used to leave deep
+      // receivers wide open).
+      if (this.ball.inFlight) {
+        const catchX = this.ball.toX;
+        const catchY = this.ball.toY;
+        const myD = Math.hypot(catchX - e.x, catchY - e.y);
+        let iAmClosest = true;
+        for (const o of this.ents) {
+          if (o.side !== 'def' || o === e) continue;
+          if (Math.hypot(catchX - o.x, catchY - o.y) < myD) { iAmClosest = false; break; }
+        }
+        const coversTarget = this.ball.targetEnt && e.assignRole === this.ball.targetEnt.role;
+        if (iAmClosest || coversTarget) {
+          this.moveToward(e, catchX, catchY, dt, 1.06); // drive to the ball
+        } else if (e.assignRole) {
+          const assign = this.ents.find((x) => x.side === 'off' && x.role === e.assignRole);
+          if (assign) this.coverTarget(e, assign, dt);
+        } else if (e.zone) {
+          this.moveToward(e, e.zone.x, e.zone.y, dt, 0.7);
+        } else {
+          this.moveToward(e, e.x, e.y + 2, dt, 0.3); // hold, don't chase the QB
+        }
+        continue;
+      }
+
       // MAN coverage on an assigned receiver
       if (e.assignRole) {
         const assign = this.ents.find((x) => x.side === 'off' && x.role === e.assignRole);
@@ -1444,6 +1561,7 @@ export class ArcadeGame {
     this.bump(this.line(this.offStats, target.player), 'targets');
     if (this.r.chance(clamp(catchP, 0.1, 0.96))) {
       this.carrier = target;
+      this.carrierSince = this.playElapsed;
       target.route = [];
       audio.play('catch');
       this.setBannerFlash('CATCH!');
@@ -1588,6 +1706,7 @@ export class ArcadeGame {
     const offenseSide = 'off';
     if (e.side === offenseSide) {
       this.carrier = e;
+      this.carrierSince = this.playElapsed;
       e.route = [];
       this.log(`${e.player.lastName} falls on the loose ball — offense keeps it!`);
       this.setBannerFlash('RECOVERED!');
@@ -1649,6 +1768,17 @@ export class ArcadeGame {
     }
 
     if (!touchdown) audio.play('whistle');
+
+    // live 2-point conversion: reaching the goal is worth 2, anything else fails
+    if (this.twoPtLive) {
+      this.twoPtLive = false;
+      if (touchdown) { this.score('user', 2); audio.play('touchdown'); this.setBanner('2-POINT CONVERSION!', 'Good!'); }
+      else this.setBanner('2-PT NO GOOD', '');
+      this.afterScoreKickoff();
+      this.pushHud();
+      return;
+    }
+
     const clockStops = touchdown || outOfBounds;
     // the play's own duration already ran off live; charge the play-clock runoff
     // between snaps (large when the clock keeps running) to curb 50+ pt games
@@ -1664,6 +1794,13 @@ export class ArcadeGame {
   private endPlay(kind: 'incomplete', _yards: number): void {
     void kind;
     audio.play('whistle');
+    if (this.twoPtLive) {
+      this.twoPtLive = false;
+      this.setBanner('2-PT NO GOOD', '');
+      this.afterScoreKickoff();
+      this.pushHud();
+      return;
+    }
     this.setBanner('INCOMPLETE', '');
     this.chargeClock(7);
     this.advanceDowns(0, true);
