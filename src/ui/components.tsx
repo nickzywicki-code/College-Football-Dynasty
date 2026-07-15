@@ -5,6 +5,7 @@ import type { Player, Team } from '../engine/types';
 import { useStore } from '../store/store';
 import { getTeamLogo, LogoTeam } from '../game/logos';
 import { getSprite, getHeadshot, skinFor, hairFor, SPRITE_GRID, HEADSHOT_GRID, Pose } from '../game/sprites';
+import { getRealHeadshot, onHeadshotsReady, headshotsReady, HEADSHOT_COUNT } from '../game/realHeadshots';
 
 export function ovrClass(o: number): string {
   if (o >= 88) return 'ovr elite';
@@ -58,12 +59,28 @@ export function PlayerHeadshot({
     if (!cv) return;
     const ctx = cv.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    const px = Math.max(1, Math.round((size * dpr) / HEADSHOT_GRID.h));
-    const shot = getHeadshot({ primary: colors[0], secondary: colors[1], skin: skinFor(player.id) }, px, hairFor(player.id));
-    const ox = Math.round((cv.width - shot.width) / 2);
-    const oy = Math.round((cv.height - shot.height) / 2);
-    ctx.drawImage(shot, ox, oy);
+
+    const draw = () => {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      // Prefer the hand-drawn helmet portrait sheet, team-tinted; fall back to
+      // the procedural headshot until the sheet has decoded.
+      const real = headshotsReady()
+        ? getRealHeadshot(player.id % HEADSHOT_COUNT, colors[0], colors[1])
+        : null;
+      if (real) {
+        ctx.drawImage(real, 0, 0, real.width, real.height, 0, 0, cv.width, cv.height);
+        return;
+      }
+      const px = Math.max(1, Math.round((size * dpr) / HEADSHOT_GRID.h));
+      const shot = getHeadshot({ primary: colors[0], secondary: colors[1], skin: skinFor(player.id) }, px, hairFor(player.id));
+      const ox = Math.round((cv.width - shot.width) / 2);
+      const oy = Math.round((cv.height - shot.height) / 2);
+      ctx.drawImage(shot, ox, oy);
+    };
+
+    draw();
+    // If the sheet wasn't ready yet, redraw once it loads.
+    if (!headshotsReady()) onHeadshotsReady(draw);
   }, [player.id, colors, size, dpr]);
   return (
     <canvas
