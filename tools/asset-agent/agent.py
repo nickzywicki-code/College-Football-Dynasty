@@ -103,32 +103,40 @@ def _save_processed(name: str, img: Image.Image, tint_team=None):
 
 
 def gen_players(client, model, skins: List[int], chain: bool, dry: bool):
-    """One 12-frame sheet per skin tone, assembled 4x3, emitted as bodySheet-style TS."""
+    """12-frame animation per skin tone, assembled into ONE combined sheet.
+
+    Layout: 4 columns (frame%4) x (3 rows per skin), skins stacked vertically.
+    Frame order matches the game's Pose enum: run0-3, idle, throw, release,
+    reach, block, tackle, down, celebrate. Emitted as src/game/playerSheet.ts.
+    """
     sample = assets.TEAMS[0]
+    all_cells: list = []
     for si in skins:
         skin = assets.SKIN_TONES[si]
         print(f"  players: skin {si} ({skin})")
-        cells, ref = [], None
+        ref = None
         for fi, fdesc in enumerate(assets.PLAYER_FRAMES):
             prompt = assets.player_prompt(fdesc, skin)
             if dry:
-                print(f"    [{fi}] {prompt}\n"); continue
+                print(f"    [{si}.{fi}] {prompt}\n"); continue
             data = gen_image(client, model, prompt, refs=[ref] if (chain and ref) else None)
             raw = _save_raw(f"player_s{si}_f{fi}", data)
             if chain and ref is None:
                 ref = data  # frame 0 anchors the character for the rest
-            cells.append(im.trim(im.key_magenta(raw)))
-        if dry or not cells:
-            continue
-        sheet, cw, ch = im.assemble_grid(cells, cols=4, baseline=True)
-        sheet = im.quantize(sheet, 64)
-        _save_processed(f"player_s{si}", sheet, tint_team=sample)
-        im.write_ts_sheet(
-            DIRS["ts"] / f"playerSheet_s{si}.ts",
-            {"PLAYER_COLS": 4, "PLAYER_ROWS": 3, "PLAYER_CW": cw, "PLAYER_CH": ch},
-            f"PLAYER_SHEET_S{si}", sheet,
-            f"Auto-generated on-field player animation sheet (skin {si}), magenta-keyed.",
-        )
+            all_cells.append(im.trim(im.key_magenta(raw)))
+    if dry or not all_cells:
+        return
+    sheet, cw, ch = im.assemble_grid(all_cells, cols=4, baseline=True)
+    sheet = im.quantize(sheet, 64)
+    _save_processed("players", sheet, tint_team=sample)
+    im.write_ts_sheet(
+        DIRS["ts"] / "playerSheet.ts",
+        {"PLAYER_COLS": 4, "PLAYER_ROWS_PER_SKIN": 3, "PLAYER_SKINS": len(skins),
+         "PLAYER_CW": cw, "PLAYER_CH": ch},
+        "PLAYER_SHEET", sheet,
+        "Auto-generated on-field player animation sheet, magenta-keyed. Frame order: "
+        "run0-3, idle, throw, release, reach, block, tackle, down, celebrate.",
+    )
 
 
 def gen_headshots(client, model, dry: bool):
@@ -186,7 +194,9 @@ def gen_field(client, model, dry: bool):
 
 
 def gen_logos(client, model, teams: List[dict], dry: bool):
+    """One logo per team, also assembled into an abbr-indexed sheet -> logoSheet.ts."""
     print(f"  logos: {len(teams)} teams")
+    cells, abbrs = [], []
     for t in teams:
         prompt = assets.logo_prompt(t)
         if dry:
@@ -196,6 +206,19 @@ def gen_logos(client, model, teams: List[dict], dry: bool):
         logo = im.quantize(im.trim(im.key_magenta(raw)), 48)
         logo.save(DIRS["processed"] / f"logo_{t['abbr']}.png")
         im.checker(logo).save(DIRS["preview"] / f"logo_{t['abbr']}_alpha.png")
+        cells.append(logo)
+        abbrs.append(t["abbr"])
+    if dry or not cells:
+        return
+    sheet, cw, ch = im.assemble_grid(cells, cols=8, baseline=False)
+    im.write_ts_sheet(
+        DIRS["ts"] / "logoSheet.ts",
+        {"LOGO_COLS": 8, "LOGO_CW": cw, "LOGO_CH": ch,
+         "LOGO_ABBRS": repr(abbrs).replace("'", '"')},
+        "LOGO_SHEET", im.quantize(sheet, 64),
+        "Auto-generated hand-drawn team logos, magenta-keyed. LOGO_ABBRS gives the "
+        "abbr at each grid cell (row-major, 8 columns).",
+    )
 
 
 # --- CLI --------------------------------------------------------------------
