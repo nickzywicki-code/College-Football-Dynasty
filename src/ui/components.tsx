@@ -6,6 +6,8 @@ import { useStore } from '../store/store';
 import { getTeamLogo, LogoTeam } from '../game/logos';
 import { getSprite, getHeadshot, skinFor, hairFor, SPRITE_GRID, HEADSHOT_GRID, Pose } from '../game/sprites';
 import { getRealHeadshot, onHeadshotsReady, headshotsReady, HEADSHOT_COUNT } from '../game/realHeadshots';
+import { getRealBody, onBodiesReady, bodiesReady, BODY_COUNT } from '../game/realBodies';
+import { BODY_CW, BODY_CH } from '../game/bodySheet';
 
 export function ovrClass(o: number): string {
   if (o >= 88) return 'ovr elite';
@@ -131,6 +133,53 @@ export function PlayerModel({
       height={Math.round(size * dpr)}
       style={{ width: size, height: size, imageRendering: 'pixelated', flexShrink: 0 }}
       aria-label="player model"
+    />
+  );
+}
+
+/** A hand-drawn full-body player in the team's colors (tall aspect). */
+export function PlayerBody({
+  player,
+  colors,
+  height = 132,
+}: {
+  player: Player;
+  colors: [string, string];
+  height?: number;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const aspect = BODY_CW / BODY_CH;
+  const width = Math.round(height * aspect);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    const draw = () => {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      const body = bodiesReady() ? getRealBody(player.id % BODY_COUNT, colors[0], colors[1]) : null;
+      if (body) {
+        ctx.drawImage(body, 0, 0, body.width, body.height, 0, 0, cv.width, cv.height);
+        return;
+      }
+      // fall back to the procedural sprite (centered) until the strip decodes
+      const px = Math.max(1, Math.round(cv.height / SPRITE_GRID.h));
+      const sprite = getSprite({ primary: colors[0], secondary: colors[1], skin: skinFor(player.id) }, 'idle', px);
+      const ox = Math.round((cv.width - sprite.width) / 2);
+      const oy = Math.round((cv.height - sprite.height) / 2);
+      ctx.drawImage(sprite, ox, oy);
+    };
+    draw();
+    if (!bodiesReady()) onBodiesReady(draw);
+  }, [player.id, colors, height, dpr]);
+  return (
+    <canvas
+      ref={ref}
+      width={Math.round(width * dpr)}
+      height={Math.round(height * dpr)}
+      style={{ width, height, imageRendering: 'pixelated', flexShrink: 0 }}
+      aria-label="player body"
     />
   );
 }

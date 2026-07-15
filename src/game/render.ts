@@ -7,6 +7,19 @@
 import type { ArcadeGame, Ent } from './arcade';
 import { FIELD_LEN, FIELD_W } from './arcade';
 import { getSprite, runBob, runPose, skinFor, Pose, SPRITE_GRID } from './sprites';
+import { BALL_SPRITE } from './ballSheet';
+
+// Hand-drawn football, preloaded once; getBallTex swaps to it when it decodes.
+let ballImg: HTMLImageElement | null = null;
+let ballImgReady = false;
+if (typeof Image !== 'undefined') {
+  ballImg = new Image();
+  ballImg.onload = () => {
+    ballImgReady = true;
+    ballTex = null; // rebuild the cached texture from the loaded art
+  };
+  ballImg.src = BALL_SPRITE;
+}
 
 /** Yards of field width visible vertically (zoom level). */
 const VIEW_W = 34;
@@ -57,6 +70,17 @@ function getCrowdTex(): HTMLCanvasElement {
 let ballTex: HTMLCanvasElement | null = null;
 function getBallTex(): HTMLCanvasElement {
   if (ballTex) return ballTex;
+  // Prefer the hand-drawn football once it has decoded.
+  if (ballImgReady && ballImg) {
+    const c = document.createElement('canvas');
+    c.width = ballImg.width;
+    c.height = ballImg.height;
+    const g = c.getContext('2d')!;
+    g.imageSmoothingEnabled = false;
+    g.drawImage(ballImg, 0, 0);
+    ballTex = c;
+    return c;
+  }
   // legend: . transparent, K outline, B brown, S brown shade, H highlight, W white
   const rows = [
     '....KKKK....',
