@@ -33,18 +33,27 @@ python agent.py --only logos --teams BOS,MIA,SEA   # subset of teams
 python agent.py --only logos                # all 32 team logos
 
 python agent.py --all --dry-run             # print every prompt, call no API
-python agent.py --all --model imagen-3.0-generate-002   # use Imagen instead
+python agent.py --all --model imagen-4.0-generate-001   # use Imagen instead
 ```
+
+### ⚠️ Billing required
+
+Image generation on the Gemini API is **paid-only** — the free tier has a
+**quota of 0** for every image model, so a free key returns `429
+RESOURCE_EXHAUSTED` on the first call (auth still succeeds). Enable billing on
+the key's Google Cloud project (AI Studio → *Get API key* → attach a paid
+project, or upgrade the plan) before running. It's cheap — a few cents per
+image. If you'd rather stay free, generate in the AI Studio / Gemini **web UI**
+by hand and post-process the sheets with `imaging.py`.
 
 ### Model
 
-Default is **`gemini-2.5-flash-image`** (aka "Nano Banana") — it follows the
-detailed sprite instructions well and supports **reference chaining**: the
-player animation frames are generated off frame 0 as a style reference so the
-same character stays consistent across all 12 poses (disable with `--no-chain`).
-If that id 404s in your region, try `gemini-2.5-flash-image-preview`, or switch
-to Imagen with `--model imagen-3.0-generate-002`. Override the default with
-`--model` or `GEMINI_IMAGE_MODEL`.
+Default is **`gemini-3.1-flash-image`** — it follows the detailed sprite
+instructions well and supports **reference chaining**: the player animation
+frames are generated off frame 0 as a style reference so the same character
+stays consistent across all 12 poses (disable with `--no-chain`). Alternatives:
+`gemini-2.5-flash-image`, `gemini-3-pro-image` (higher quality, pricier), or
+`imagen-4.0-generate-001`. Override with `--model` or `GEMINI_IMAGE_MODEL`.
 
 ## Output (`./out`)
 

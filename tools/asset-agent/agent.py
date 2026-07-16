@@ -253,8 +253,10 @@ def main():
     ap = argparse.ArgumentParser(description="Generate Gridiron Land assets with Gemini.")
     ap.add_argument("--all", action="store_true", help="generate every asset")
     ap.add_argument("--only", choices=["players", "headshots", "football", "field", "logos"])
-    ap.add_argument("--model", default=os.environ.get("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image"),
-                    help="image model (default gemini-2.5-flash-image; or imagen-3.0-generate-002)")
+    ap.add_argument("--model", default=os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image"),
+                    help="image model (default gemini-3.1-flash-image; also gemini-2.5-flash-image, "
+                         "gemini-3-pro-image, or imagen-4.0-generate-001). NOTE: image generation "
+                         "requires a billing-enabled Google project — the free tier has a 0 quota.")
     ap.add_argument("--skins", default="0,1,2,3,4,5", help="player skin-tone indices, comma-separated")
     ap.add_argument("--teams", default="", help="logo team abbrs, comma-separated (default all 32)")
     ap.add_argument("--no-chain", action="store_true", help="don't use frame 0 as a character reference")
