@@ -42,38 +42,64 @@ DIRS = {k: OUT / k for k in ("raw", "processed", "preview", "ts")}
 
 # --- Gemini plumbing --------------------------------------------------------
 
+API = "https://generativelanguage.googleapis.com/v1beta"
+
+
 def make_client():
-    try:
-        from google import genai  # noqa
-    except ImportError:
-        sys.exit("google-genai not installed. Run: pip install -r requirements.txt")
+    """Return the API key (the 'client' is just the key for the REST backend)."""
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
         sys.exit("Set GEMINI_API_KEY in your environment.")
-    from google import genai
-    return genai.Client(api_key=key)
+    try:
+        import requests  # noqa: F401
+    except ImportError:
+        sys.exit("requests not installed. Run: pip install -r requirements.txt")
+    return key
+
+
+def _extract_image(payload: dict) -> Optional[bytes]:
+    import base64
+    # Gemini generateContent: candidates[].content.parts[].inlineData.data (b64)
+    for cand in payload.get("candidates", []):
+        for part in cand.get("content", {}).get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data")
+            if inline and inline.get("data"):
+                return base64.b64decode(inline["data"])
+    # Imagen predict: predictions[].bytesBase64Encoded
+    for pred in payload.get("predictions", []):
+        b64 = pred.get("bytesBase64Encoded") or pred.get("image", {}).get("imageBytes")
+        if b64:
+            return base64.b64decode(b64)
+    return None
 
 
 def gen_image(client, model: str, prompt: str, refs: Optional[List[bytes]] = None,
               retries: int = 4) -> bytes:
-    """Return PNG/JPEG bytes for one image, retrying with backoff."""
-    from google.genai import types
+    """Return PNG/JPEG bytes for one image via the Gemini REST API, with backoff."""
+    import base64
+    import requests
+    key = client
     last = None
     for attempt in range(retries):
         try:
             if model.startswith("imagen"):
-                cfg = types.GenerateImagesConfig(number_of_images=1, aspect_ratio="1:1")
-                r = client.models.generate_images(model=model, prompt=prompt, config=cfg)
-                return r.generated_images[0].image.image_bytes
-            contents: list = [prompt]
-            for rb in refs or []:
-                contents.append(types.Part.from_bytes(data=rb, mime_type="image/png"))
-            r = client.models.generate_content(model=model, contents=contents)
-            for part in r.candidates[0].content.parts:
-                inline = getattr(part, "inline_data", None)
-                if inline and inline.data:
-                    return inline.data
-            raise RuntimeError("no image part in response")
+                url = f"{API}/models/{model}:predict?key={key}"
+                body = {"instances": [{"prompt": prompt}],
+                        "parameters": {"sampleCount": 1, "aspectRatio": "1:1"}}
+            else:
+                url = f"{API}/models/{model}:generateContent?key={key}"
+                parts: list = [{"text": prompt}]
+                for rb in refs or []:
+                    parts.append({"inlineData": {"mimeType": "image/png",
+                                                 "data": base64.b64encode(rb).decode()}})
+                body = {"contents": [{"parts": parts}]}
+            r = requests.post(url, json=body, timeout=120)
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            img = _extract_image(r.json())
+            if not img:
+                raise RuntimeError(f"no image in response: {r.text[:300]}")
+            return img
         except Exception as e:  # noqa: BLE001 — network/quota/parse, all retryable
             last = e
             wait = 2 ** attempt
